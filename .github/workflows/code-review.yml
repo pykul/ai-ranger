@@ -1,0 +1,57 @@
+# Disabled: requires ANTHROPIC_API_KEY secret to be configured.
+# To enable: uncomment the `on:` trigger below and add the secret.
+name: Code Review
+
+on:
+  workflow_dispatch: # manual-only — effectively disabled until API key is configured
+  # pull_request:
+  #   branches: [main]
+  # issue_comment:
+  #   types: [created]
+
+jobs:
+  review:
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' &&
+       contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          direct_prompt: |
+            You are a senior code reviewer for a polyglot monorepo (Rust, Python, Go, TypeScript).
+            Read CLAUDE.md and ARCHITECTURE.md before reviewing. These are the source of truth.
+
+            ## General (all languages)
+            - Verify changes stay within the scope of the current phase (see ARCHITECTURE.md)
+            - Flag any MITM-related code outside capture/mitm/ — that is Phase 5+ only
+            - Every new component must have a Makefile
+            - No secrets, tokens, or credentials in code
+            - Check that new code has test coverage for non-trivial logic
+
+            ## Rust (agent/)
+            - The pcap crate is forbidden — no libpcap, npcap, or WinPcap dependencies
+            - Agent must use only OS built-in APIs for packet capture
+            - Review unsafe blocks for soundness
+            - Verify no panicking code (.unwrap()) on fallible paths in the hot loop
+            - Zero call-home by default — agent must not contact any URL unless configured
+
+            ## Python (gateway/)
+            # - Flask gateway must only do: receive HTTP, verify tokens, deserialize protobuf, publish to RabbitMQ
+            # - No database queries, ClickHouse inserts, or business logic in Flask routes
+            # - Check for proper error handling on protobuf deserialization
+
+            ## Go (workers/)
+            # - All business logic, DB writes, and dashboard API endpoints belong here
+            # - Dashboard talks to Go only, never Flask
+            # - Verify proper error handling on RabbitMQ consumption and ClickHouse writes
+
+            Do not comment on formatting — automated tools (rustfmt, ruff, gofmt) handle that.
+            Do not comment on import ordering.
+            Focus on correctness, architecture alignment, and security.

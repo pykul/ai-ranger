@@ -1,1 +1,287 @@
-# ai-ranger
+# AI Ranger
+
+**Discover which AI tools your team is using, without reading a single message.**
+
+Claude, Cursor, Copilot, ChatGPT, local models. All of it, in one place.
+
+AI Ranger is an open source agent that runs on your machines and tells you which AI
+providers are being called, by which tools, and how much traffic is flowing to them.
+Visibility into AI usage across your organization, with no proxy on your network and
+nothing intercepted.
+
+No content inspection. No proxies. No certificate installation. Just network metadata,
+handled transparently, from source code you can read yourself.
+
+---
+
+## How it works (and why it is not spying on you)
+
+When your machine connects to an AI provider like `api.anthropic.com`, it sends a small
+plaintext greeting before any encryption begins. That greeting contains the destination
+hostname. AI Ranger reads that hostname and nothing else.
+
+Think of it like a postal worker reading the address on the envelope. The letter inside
+is sealed. We never open it, never read it, never see it. We only see where it went.
+
+This is fundamentally different from tools that decrypt your traffic. There is no
+man-in-the-middle proxy. There is no custom certificate installed on your machine.
+There is no interception. AI Ranger is a passive observer of metadata that is already
+visible to every router and firewall between you and the destination. The encrypted
+content of your prompts and responses stays encrypted, always.
+
+**What AI Ranger sees:**
+- Which AI provider was contacted (`api.anthropic.com`, `api.openai.com`, etc.)
+- Which application made the call (Cursor, Claude Code, a Python script, etc.)
+- How many bytes were sent and received
+- When it happened
+
+**What AI Ranger never sees:**
+- The content of any prompt or message
+- Any response from an AI provider
+- Anything inside an encrypted connection
+
+The agent is fully open source. Every line of network-touching code is public and
+auditable. That is not a marketing claim, it is the architecture. If you are not
+sure what the agent does, you can read it.
+
+**A note on root access.** Capturing raw network packets requires elevated privileges
+on all major operating systems. The agent runs as root on Linux and macOS, or as a
+Windows Service with the necessary capabilities on Windows. This is standard for any
+tool that observes network-layer metadata. The same requirement applies to Wireshark,
+tcpdump, and endpoint security agents. What root access gives the agent is the ability
+to see packet headers. It does not change what the agent reads from those packets, which
+is only the destination hostname. The source code is there to verify this.
+
+The agent binary is fully standalone with no external dependencies. No drivers, no
+additional software, no npcap. Download it and run it.
+
+---
+
+## Why this exists
+
+Developers today use more AI tools than any organization can easily track. Cursor on
+one machine, Claude Code on another, Copilot in the IDE, ChatGPT in the browser,
+a local Ollama instance running overnight. Most engineering leads have no idea which
+tools their team is actually using, let alone how heavily.
+
+AI Ranger gives you that visibility without requiring you to route traffic through a
+proxy, install certificates, or touch your existing tooling. It works alongside whatever
+your developers are already using, without getting in the way.
+
+---
+
+## What you get
+
+- **Per-user, per-tool breakdown:** see which developer is using which AI provider
+  and which application they are calling it from
+- **Traffic volume:** bytes sent and received per provider, per machine, over time
+- **Fleet management:** enroll machines with a single command, manage them from a
+  dashboard
+- **Self-hostable:** your data never leaves your infrastructure
+- **Open source:** Apache-2.0, community-maintained, no vendor lock-in
+
+---
+
+## Installation
+
+### Downloading the agent
+
+Pre-built binaries for Linux, macOS (Intel and Apple Silicon), and Windows are
+attached to every release on the [GitHub Releases page](https://github.com/pykul/ai-ranger/releases).
+No Rust toolchain required to run them.
+
+```bash
+# macOS (Apple Silicon)
+curl -sSL https://github.com/pykul/ai-ranger/releases/latest/download/ai-ranger-aarch64-apple-darwin \
+  -o /usr/local/bin/ai-ranger && chmod +x /usr/local/bin/ai-ranger
+
+# macOS (Intel)
+curl -sSL https://github.com/pykul/ai-ranger/releases/latest/download/ai-ranger-x86_64-apple-darwin \
+  -o /usr/local/bin/ai-ranger && chmod +x /usr/local/bin/ai-ranger
+
+# Linux (x86_64)
+curl -sSL https://github.com/pykul/ai-ranger/releases/latest/download/ai-ranger-x86_64-unknown-linux-gnu \
+  -o /usr/local/bin/ai-ranger && chmod +x /usr/local/bin/ai-ranger
+```
+
+Each release includes SHA256 checksums in `checksums.txt`. Verify before running:
+
+```bash
+sha256sum -c checksums.txt --ignore-missing
+```
+
+Package manager support (Homebrew, AUR, nixpkgs, winget) is community-driven.
+If you package AI Ranger for a package manager, open a PR to add it to the docs.
+
+### Enrolling an agent with a backend
+
+If you are running the full backend (see Quick Start below), generate an enrollment
+token from the dashboard and run the one-line installer. It handles binary download,
+checksum verification, and daemon installation automatically:
+
+```bash
+curl -sSL https://your-instance.com/install.sh | sh -s -- --token=tok_abc123
+```
+
+The agent installs as a system daemon (`launchd` on macOS, `systemd` on Linux,
+Windows Service on Windows), enrolls with your backend, and starts reporting.
+No reboot. No proxy configuration. No certificate installation.
+
+### Running standalone with no backend
+
+The agent works completely independently. With no config file it reads network
+traffic and prints events to stdout, useful for testing, scripting, or piping
+into your own tooling:
+
+```bash
+sudo ai-ranger
+```
+
+To verify it is working, open a second terminal and trigger some AI provider traffic:
+
+```bash
+# Each of these should produce a JSON line in the agent terminal
+curl -s https://api.anthropic.com > /dev/null
+curl -s https://api.openai.com > /dev/null
+curl -s https://api2.cursor.sh > /dev/null
+
+# This should produce nothing (not an AI provider)
+curl -s https://github.com > /dev/null
+```
+
+```json
+{"timestamp_ms":1773506947460,"provider":"anthropic","provider_host":"api.anthropic.com","detection_method":"sni","process_name":"claude","process_pid":1867,"src_ip":"172.27.151.106"}
+{"timestamp_ms":1773506958887,"provider":"openai","provider_host":"chat.openai.com","detection_method":"sni","process_name":"curl","process_pid":4811,"src_ip":"172.27.151.106"}
+```
+
+No account. No config. No data sent anywhere.
+
+---
+
+## Quick start (full backend)
+
+```bash
+git clone https://github.com/pykul/ai-ranger
+cd ai-ranger
+make dev
+```
+
+Then open `http://localhost:3000`. Generate an enrollment token from the Fleet page,
+then install the agent on any machine using the one-liner above.
+
+---
+
+## Supported AI providers
+
+AI Ranger ships with a community-maintained registry of known AI provider hostnames.
+It currently covers:
+
+- Anthropic / Claude
+- OpenAI / ChatGPT
+- Cursor
+- GitHub Copilot
+- Google Gemini
+- Mistral
+- Ollama (local models)
+- and more, see `providers/providers.toml`
+
+Missing a provider? [Open a PR](https://github.com/pykul/ai-ranger/blob/main/providers/CONTRIBUTING.md).
+Adding a provider is a one-minute TOML edit, no code required.
+
+---
+
+## Privacy and security
+
+- **Zero call-home by default.** The agent never contacts any URL unless you explicitly
+  configure a backend. Running `ai-ranger` with no config produces local stdout output only.
+- **No content inspection.** The agent reads SNI hostnames and byte counts. It never
+  reads, buffers, or transmits any part of the encrypted payload.
+- **Local-first.** Events are buffered locally on the machine and only uploaded when
+  a backend is configured and reachable. Nothing is sent to any third party.
+- **Explicit enrollment.** The backend URL and enrollment token must be explicitly
+  provided during installation. They are never hardcoded or bundled.
+- **Fully auditable.** Every line of code is open source. Read it, fork it, run it
+  yourself. The privacy guarantee is structural, not a policy.
+
+---
+
+## Architecture overview
+
+The agent is a single Rust binary. It captures TLS ClientHello packets using OS-native
+raw sockets (no libpcap, no external drivers), extracts the destination hostname from
+each one, matches it against a provider registry, and routes the resulting events to
+one or more output sinks. By default the only sink is stdout. The agent is fully
+functional with no other components present.
+
+Output sinks are pluggable. The agent ships with a stdout sink, a file sink, a backend
+sink that POSTs protobuf batches to the AI Ranger backend over HTTPS, and a webhook
+sink for custom destinations. Multiple
+sinks can be active at once, configured in `config.toml`. This is how teams with
+existing observability infrastructure connect AI Ranger to Datadog, Splunk, or any
+HTTPS endpoint without running the backend at all.
+
+The backend is optional and self-hosted. It consists of a Python/Flask gateway that
+receives agent batches and publishes them to RabbitMQ, Go workers that consume from
+the queue and write to storage, and a React dashboard. Postgres holds identity data
+(organizations, agents, enrollment tokens). ClickHouse holds the event timeseries.
+The full stack starts with `make dev`.
+
+When the HTTPS sink is configured, the agent buffers events locally in SQLite and
+uploads batches every 30 seconds. If the backend is unreachable, events accumulate
+locally and are delivered when the connection recovers.
+
+For the complete technical design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+
+---
+
+## Roadmap
+
+The current version of AI Ranger operates in passive SNI capture mode only. This is
+intentional. It is the trust-first approach, and it covers the most important use
+case: knowing which AI providers your team is talking to, without reading what they
+are saying.
+
+**MITM mode (planned, opt-in only)**
+
+A future version will include an optional MITM (man-in-the-middle) capture mode for
+users and organizations that want deeper visibility. When enabled, this mode will
+reveal the exact model being called (e.g. `claude-opus-4-5` vs `claude-haiku-3-5`), token
+counts, and response latency. Information that is only available inside the encrypted
+payload.
+
+This mode will require explicit opt-in: a separate install step, a separate flag, and
+an acknowledgment of what it does. It will never be the default. It will also come with
+honest caveats. Some tools use certificate pinning and will not work through a local
+proxy, and any mode that reads prompt content introduces PII considerations that need
+to be handled deliberately.
+
+MITM mode is tracked in the architecture document. Community input on the design is
+welcome before implementation begins.
+
+---
+
+## Contributing
+
+AI Ranger is a community tool. Contributions are welcome at every level.
+
+The easiest way to contribute is to add a provider to `providers/providers.toml`.
+If you see an AI tool making network calls that AI Ranger is not detecting, open a PR.
+The format is simple and documented in `providers/CONTRIBUTING.md`.
+
+For code contributions:
+
+```bash
+git clone https://github.com/pykul/ai-ranger
+cd ai-ranger
+make dev        # start the full stack
+make test       # run all tests
+make lint       # lint all components
+```
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+
+---
+
+## License
+
+Apache-2.0. See [LICENSE](./LICENSE).

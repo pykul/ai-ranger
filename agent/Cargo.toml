@@ -1,0 +1,24 @@
+[package]
+name = "ai-ranger"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ai-ranger"
+path = "src/main.rs"
+
+[dependencies]
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono     = "0.4"
+
+# Platform-specific capture backends — no external C library installation required.
+# All crates below bind only to OS-built-in APIs (ws2_32.dll, kernel32, libc).
+
+[target.'cfg(windows)'.dependencies]
+# WinSock2 raw socket + SIO_RCVALL — built into every Windows install, no driver needed.
+winapi = { version = "0.3", features = ["winsock2", "ws2def", "ws2ipdef", "minwindef"] }
+
+[target.'cfg(unix)'.dependencies]
+# AF_PACKET (Linux) and BPF /dev/bpf* (macOS) — both kernel built-ins, no libpcap.
+libc = "0.2"

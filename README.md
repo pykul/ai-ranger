@@ -137,9 +137,21 @@ into your own tooling:
 sudo ai-ranger
 ```
 
+To verify it is working, open a second terminal and trigger some AI provider traffic:
+
+```bash
+# Each of these should produce a JSON line in the agent terminal
+curl -s https://api.anthropic.com > /dev/null
+curl -s https://api.openai.com > /dev/null
+curl -s https://api2.cursor.sh > /dev/null
+
+# This should produce nothing (not an AI provider)
+curl -s https://github.com > /dev/null
+```
+
 ```json
-{"timestamp":"2026-03-10T14:23:01Z","provider":"anthropic","host":"api.anthropic.com","process":"claude","bytes_sent":1240,"bytes_received":8821}
-{"timestamp":"2026-03-10T14:23:44Z","provider":"openai","host":"api.openai.com","process":"cursor","bytes_sent":890,"bytes_received":4201}
+{"timestamp_ms":1773506947460,"provider":"anthropic","provider_host":"api.anthropic.com","detection_method":"sni","process_name":"claude","process_pid":1867,"src_ip":"172.27.151.106"}
+{"timestamp_ms":1773506958887,"provider":"openai","provider_host":"chat.openai.com","detection_method":"sni","process_name":"curl","process_pid":4811,"src_ip":"172.27.151.106"}
 ```
 
 No account. No config. No data sent anywhere.

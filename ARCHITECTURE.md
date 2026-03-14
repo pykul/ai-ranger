@@ -372,6 +372,9 @@ message AiConnectionEvent {
   DetectionMethod detection_method = 14;
   CaptureMode capture_mode = 15;
 
+  // Network
+  string src_ip = 22;  // source IP of the connection
+
   // Phase 5 - MITM only. Do not populate these fields until Phase 5.
   bool content_available = 16;
   optional string payload_ref = 17;
@@ -428,32 +431,35 @@ everything if the `.proto` files change.
 // This is shown here for documentation clarity only.
 
 pub struct AiConnectionEvent {
-    // Identity
+    // Identity - Phase 1 (Phase 0 leaves these as empty string)
     pub agent_id: String,
     pub machine_hostname: String,
     pub os_username: String,
 
     // Timing
-    pub timestamp_ms: i64,              // Phase 1
+    pub timestamp_ms: i64,              // Phase 0
     pub duration_ms: Option<u64>,       // Phase 1
 
     // Provider
-    pub provider: String,               // Phase 1 - "anthropic", "openai" ...
-    pub provider_host: String,          // Phase 1 - raw SNI e.g. "api.anthropic.com"
+    pub provider: String,               // Phase 0 - "anthropic", "openai" ...
+    pub provider_host: String,          // Phase 0 - raw SNI e.g. "api.anthropic.com"
     pub model_hint: Option<String>,     // Phase 1 - derived from hostname
 
     // Process
-    pub process_name: String,           // Phase 1
-    pub process_pid: u32,               // Phase 1
+    pub process_name: String,           // Phase 0 - "unknown" until Phase 1
+    pub process_pid: u32,               // Phase 0
     pub process_path: Option<String>,   // Phase 1
+
+    // Network
+    pub src_ip: String,                 // Phase 0 - source IP of the connection
 
     // Traffic
     pub bytes_sent: u64,                // Phase 1
     pub bytes_received: u64,            // Phase 1
 
     // Detection
-    pub detection_method: DetectionMethod,  // Phase 1
-    pub capture_mode: CaptureMode,          // Phase 1 - always DnsSni until Phase 5
+    pub detection_method: DetectionMethod,  // Phase 0
+    pub capture_mode: CaptureMode,          // Phase 0 - always DnsSni until Phase 5
 
     // Phase 5 - MITM only. Always default/None until Phase 5.
     pub content_available: bool,
@@ -602,16 +608,17 @@ Example payload:
     "agent_id": "3f2a1b4c-...",
     "machine_hostname": "alices-macbook",
     "os_username": "alice",
-    "timestamp_ms": 1741954981000,
-    "duration_ms": 240,
+    "timestamp_ms": 1773506947460,
+    "duration_ms": null,
     "provider": "anthropic",
     "provider_host": "api.anthropic.com",
     "model_hint": null,
-    "process_name": "cursor",
-    "process_pid": 8821,
-    "process_path": "/Applications/Cursor.app/Contents/MacOS/Cursor",
-    "bytes_sent": 1240,
-    "bytes_received": 8821,
+    "process_name": "claude",
+    "process_pid": 1867,
+    "process_path": null,
+    "src_ip": "172.27.151.106",
+    "bytes_sent": 0,
+    "bytes_received": 0,
     "detection_method": "SNI",
     "capture_mode": "DNS_SNI",
     "content_available": false,
@@ -625,14 +632,13 @@ Example payload:
 ```
 
 Fields populated only in MITM mode (Phase 5+) will always be `null` in the current
-version. The `batch_size` config key controls the maximum number of events per POST.
-If not set, the default is 100.
+version. `bytes_sent` and `bytes_received` are populated in Phase 1 and will be `0`
+in Phase 0 output. The `batch_size` config key controls the maximum number of events
+per POST. If not set, the default is 100.
 
+---
 
-
-This is the most community-contributed file in the project. It lives in its own
-directory so contributors can add providers without touching any code. A CI check
-validates schema on every PR.
+## Provider Registry (`providers/providers.toml`)
 
 ```toml
 # CONTRIBUTING: To add a provider, open a PR adding an entry below.

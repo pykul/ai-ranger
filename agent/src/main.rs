@@ -5,7 +5,10 @@ use chrono::Utc;
 use serde::Serialize;
 
 #[derive(Serialize)]
-struct Event {
+struct AiConnectionEvent {
+    agent_id: String,
+    machine_hostname: String,
+    os_username: String,
     timestamp_ms: i64,
     provider: String,
     provider_host: String,
@@ -13,6 +16,7 @@ struct Event {
     process_name: String,
     process_pid: u32,
     src_ip: String,
+    capture_mode: &'static str,
 }
 
 fn main() {
@@ -28,7 +32,10 @@ fn main() {
 
         let (process_pid, process_name) = pid_and_name(packet.src_port);
 
-        let event = Event {
+        let event = AiConnectionEvent {
+            agent_id: String::new(),
+            machine_hostname: String::new(),
+            os_username: String::new(),
             timestamp_ms: Utc::now().timestamp_millis(),
             provider: provider.to_string(),
             provider_host: packet.sni_hostname,
@@ -36,6 +43,7 @@ fn main() {
             process_name,
             process_pid,
             src_ip: packet.src_ip,
+            capture_mode: "DNS_SNI",
         };
 
         println!("{}", serde_json::to_string(&event).unwrap());

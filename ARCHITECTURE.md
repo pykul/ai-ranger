@@ -573,7 +573,7 @@ type = "stdout"     # default, always works with zero config
 
 [[outputs]]
 type = "http"
-url = "http://localhost:8080"
+url = "http://localhost:8080"   # use https:// in production
 token = "tok_abc123"
 
 [[outputs]]
@@ -588,9 +588,47 @@ batch_size = 100
 # path = "/etc/ai-ranger/plugins/custom.wasm"
 ```
 
----
+### Webhook sink payload
 
-## Provider Registry (`providers/providers.toml`)
+When the webhook sink fires, it POSTs a JSON array of events to the configured URL.
+Each element in the array is a serialized `AiConnectionEvent`. The `Content-Type`
+header is `application/json` unless overridden in the config.
+
+Example payload:
+
+```json
+[
+  {
+    "agent_id": "3f2a1b4c-...",
+    "machine_hostname": "alices-macbook",
+    "os_username": "alice",
+    "timestamp_ms": 1741954981000,
+    "duration_ms": 240,
+    "provider": "anthropic",
+    "provider_host": "api.anthropic.com",
+    "model_hint": null,
+    "process_name": "cursor",
+    "process_pid": 8821,
+    "process_path": "/Applications/Cursor.app/Contents/MacOS/Cursor",
+    "bytes_sent": 1240,
+    "bytes_received": 8821,
+    "detection_method": "SNI",
+    "capture_mode": "DNS_SNI",
+    "content_available": false,
+    "payload_ref": null,
+    "model_exact": null,
+    "token_count_input": null,
+    "token_count_output": null,
+    "latency_ttfb_ms": null
+  }
+]
+```
+
+Fields populated only in MITM mode (Phase 5+) will always be `null` in the current
+version. The `batch_size` config key controls the maximum number of events per POST.
+If not set, the default is 100.
+
+
 
 This is the most community-contributed file in the project. It lives in its own
 directory so contributors can add providers without touching any code. A CI check

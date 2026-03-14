@@ -2,10 +2,12 @@
 
 **Discover which AI tools your team is using, without reading a single message.**
 
-AI Ranger is an open source agent that runs on your machines and reports which AI
+Claude, Cursor, Copilot, ChatGPT, local models. All of it, in one place.
+
+AI Ranger is an open source agent that runs on your machines and tells you which AI
 providers are being called, by which tools, and how much traffic is flowing to them.
-It gives engineering leads and security teams visibility into AI usage across their
-organization. Claude, Cursor, Copilot, ChatGPT, local models, all of it, in one place.
+Visibility into AI usage across your organization, with no proxy on your network and
+nothing intercepted.
 
 No content inspection. No proxies. No certificate installation. Just network metadata,
 handled transparently, from source code you can read yourself.
@@ -57,9 +59,10 @@ additional software, no npcap. Download it and run it.
 
 ## Why this exists
 
-AI tool usage in engineering teams has grown faster than most organizations can track.
-Developers are using Cursor, Claude Code, Copilot, ChatGPT, and local models,
-sometimes all on the same day, and there is often no central visibility into any of it.
+Developers today use more AI tools than any organization can easily track. Cursor on
+one machine, Claude Code on another, Copilot in the IDE, ChatGPT in the browser,
+a local Ollama instance running overnight. Most engineering leads have no idea which
+tools their team is actually using, let alone how heavily.
 
 AI Ranger gives you that visibility without requiring you to route traffic through a
 proxy, install certificates, or touch your existing tooling. It works alongside whatever
@@ -156,64 +159,6 @@ then install the agent on any machine using the one-liner above.
 
 ---
 
-## Building from source
-
-### Prerequisites
-
-Install the Rust toolchain via [rustup](https://rustup.rs) — this provides `cargo` and the compiler.
-
-**Windows**
-```powershell
-# Download and run the rustup installer from https://rustup.rs
-# After installation, open a new terminal so %USERPROFILE%\.cargo\bin is on your PATH.
-```
-
-**macOS / Linux**
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-# Follow the prompts, then open a new terminal or run: source "$HOME/.cargo/env"
-```
-
-No other dependencies are required. The agent uses only OS-built-in APIs (`ws2_32.dll` on Windows, `AF_PACKET` on Linux, `/dev/bpf` on macOS). No npcap, no libpcap, no WinPcap.
-
-### Build
-
-```bash
-git clone https://github.com/pykul/ai-ranger
-cd ai-ranger
-cargo build
-```
-
-### Test
-
-Unit tests do not require elevated privileges and run on all platforms:
-
-```bash
-cargo test
-```
-
-### Running the built binary
-
-Packet capture requires elevated privileges to open raw sockets. Build first with `cargo build`, then:
-
-**Windows** — open your terminal as Administrator:
-```powershell
-.\target\debug\ai-ranger.exe
-```
-
-**macOS / Linux:**
-```bash
-sudo ./target/debug/ai-ranger
-```
-
-Alternatively on Linux, you can grant the binary the `CAP_NET_RAW` capability and run it without `sudo`:
-```bash
-sudo setcap cap_net_raw+ep ./target/debug/ai-ranger
-./target/debug/ai-ranger
-```
-
----
-
 ## Supported AI providers
 
 AI Ranger ships with a community-maintained registry of known AI provider hostnames.
@@ -250,23 +195,36 @@ Adding a provider is a one-minute TOML edit, no code required.
 
 ## Architecture overview
 
-The system has four components:
+The agent is a single Rust binary. It captures TLS ClientHello packets using OS-native
+raw sockets (no libpcap, no external drivers), extracts the destination hostname from
+each one, matches it against a provider registry, and routes the resulting events to
+one or more output sinks. By default the only sink is stdout. The agent is fully
+functional with no other components present.
 
-- **Agent (Rust):** runs on each machine, captures SNI hostnames, reports to the backend
-- **Gateway (Python/Flask):** thin ingest layer that receives agent data and queues it
-- **Workers (Go):** async processors that write to storage and serve the dashboard API
-- **Dashboard (React):** web UI for fleet management and usage analytics
+Output sinks are pluggable. The agent ships with a stdout sink, a file sink, a backend
+sink that POSTs protobuf batches to the AI Ranger backend over HTTPS, and a webhook
+sink for custom destinations. Multiple
+sinks can be active at once, configured in `config.toml`. This is how teams with
+existing observability infrastructure connect AI Ranger to Datadog, Splunk, or any
+HTTPS endpoint without running the backend at all.
 
-Storage uses Postgres for identity and ClickHouse for event timeseries. RabbitMQ
-handles the queue between gateway and workers. The full stack runs with `make dev`.
+The backend is optional and self-hosted. It consists of a Python/Flask gateway that
+receives agent batches and publishes them to RabbitMQ, Go workers that consume from
+the queue and write to storage, and a React dashboard. Postgres holds identity data
+(organizations, agents, enrollment tokens). ClickHouse holds the event timeseries.
+The full stack starts with `make dev`.
 
-For the full technical design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+When the HTTPS sink is configured, the agent buffers events locally in SQLite and
+uploads batches every 30 seconds. If the backend is unreachable, events accumulate
+locally and are delivered when the connection recovers.
+
+For the complete technical design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---
 
 ## Roadmap
 
-The current version of AI Ranger operates in passive DNS/SNI mode only. This is
+The current version of AI Ranger operates in passive SNI capture mode only. This is
 intentional. It is the trust-first approach, and it covers the most important use
 case: knowing which AI providers your team is talking to, without reading what they
 are saying.
@@ -275,7 +233,7 @@ are saying.
 
 A future version will include an optional MITM (man-in-the-middle) capture mode for
 users and organizations that want deeper visibility. When enabled, this mode will
-reveal the exact model being called (e.g. `claude-opus-4-5` vs `claude-haiku`), token
+reveal the exact model being called (e.g. `claude-opus-4-5` vs `claude-haiku-3-5`), token
 counts, and response latency. Information that is only available inside the encrypted
 payload.
 

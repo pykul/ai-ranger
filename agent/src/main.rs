@@ -80,13 +80,19 @@ fn process_name(pid: u32) -> Option<String> {
 #[cfg(windows)]
 fn resolve_pid_impl(src_port: u16) -> Option<u32> {
     use std::process::Command;
-    let out = Command::new("netstat").args(["-ano", "-p", "TCP"]).output().ok()?;
+    let out = Command::new("netstat")
+        .args(["-ano", "-p", "TCP"])
+        .output()
+        .ok()?;
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         let cols: Vec<&str> = line.split_whitespace().collect();
         if cols.len() < 5 {
             continue;
         }
-        if cols.get(1).map_or(false, |a| a.ends_with(&format!(":{src_port}"))) {
+        if cols
+            .get(1)
+            .map_or(false, |a| a.ends_with(&format!(":{src_port}")))
+        {
             return cols.last().and_then(|s| s.parse().ok());
         }
     }
@@ -119,7 +125,10 @@ fn resolve_pid_impl(src_port: u16) -> Option<u32> {
     // Each row: sl local_address rem_address st tx_queue:rx_queue tr:tm->when retrnsmt uid timeout inode
     let inode: u64 = tcp.lines().skip(1).find_map(|line| {
         let cols: Vec<&str> = line.split_whitespace().collect();
-        if !cols.get(1).map_or(false, |a| a.ends_with(&format!(":{port_hex}"))) {
+        if !cols
+            .get(1)
+            .is_some_and(|a| a.ends_with(&format!(":{port_hex}")))
+        {
             return None;
         }
         cols.get(9)?.parse().ok()
@@ -137,7 +146,10 @@ fn resolve_pid_impl(src_port: u16) -> Option<u32> {
         };
         for fd in fds.flatten() {
             if let Ok(target) = fs::read_link(fd.path()) {
-                if target.to_string_lossy().contains(&format!("socket:[{inode}]")) {
+                if target
+                    .to_string_lossy()
+                    .contains(&format!("socket:[{inode}]"))
+                {
                     return Some(pid);
                 }
             }
@@ -185,7 +197,11 @@ fn process_name_impl(pid: u32) -> Option<String> {
         .output()
         .ok()?;
     let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if name.is_empty() { None } else { Some(name) }
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 // ── Unsupported platform fallback ─────────────────────────────────────────────

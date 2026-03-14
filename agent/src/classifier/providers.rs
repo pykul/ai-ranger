@@ -77,7 +77,10 @@ mod tests {
 
     #[test]
     fn exact_match_gemini() {
-        assert_eq!(classify("generativelanguage.googleapis.com"), Some("google_gemini"));
+        assert_eq!(
+            classify("generativelanguage.googleapis.com"),
+            Some("google_gemini")
+        );
     }
 
     #[test]

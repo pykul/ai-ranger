@@ -31,14 +31,54 @@ mod platform {
     //   ret  #0xffff        ; accept
     //   ret  #0             ; reject
     const FILTER: [sock_filter; 8] = [
-        sock_filter { code: 0x28, jt: 0, jf: 0, k: 12 },
-        sock_filter { code: 0x15, jt: 0, jf: 5, k: 0x0800 },
-        sock_filter { code: 0x30, jt: 0, jf: 0, k: 23 },
-        sock_filter { code: 0x15, jt: 0, jf: 3, k: 6 },
-        sock_filter { code: 0x28, jt: 0, jf: 0, k: 36 },
-        sock_filter { code: 0x15, jt: 0, jf: 1, k: 443 },
-        sock_filter { code: 0x06, jt: 0, jf: 0, k: 0xffff },
-        sock_filter { code: 0x06, jt: 0, jf: 0, k: 0 },
+        sock_filter {
+            code: 0x28,
+            jt: 0,
+            jf: 0,
+            k: 12,
+        },
+        sock_filter {
+            code: 0x15,
+            jt: 0,
+            jf: 5,
+            k: 0x0800,
+        },
+        sock_filter {
+            code: 0x30,
+            jt: 0,
+            jf: 0,
+            k: 23,
+        },
+        sock_filter {
+            code: 0x15,
+            jt: 0,
+            jf: 3,
+            k: 6,
+        },
+        sock_filter {
+            code: 0x28,
+            jt: 0,
+            jf: 0,
+            k: 36,
+        },
+        sock_filter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: 443,
+        },
+        sock_filter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: 0xffff,
+        },
+        sock_filter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
     ];
 
     pub fn capture<F: FnMut(PacketInfo)>(
@@ -69,11 +109,9 @@ mod platform {
             ) < 0
             {
                 close(sock);
-                return Err(format!(
-                    "SO_ATTACH_FILTER failed: {}",
-                    *libc::__errno_location()
-                )
-                .into());
+                return Err(
+                    format!("SO_ATTACH_FILTER failed: {}", *libc::__errno_location()).into(),
+                );
             }
 
             eprintln!("[ai-ranger] Capturing on all interfaces (AF_PACKET raw socket)");
@@ -116,7 +154,11 @@ mod platform {
         let doff = ((tcp[12] >> 4) as usize) * 4;
         let payload = tcp.get(doff..)?;
         let sni = super::super::sni::extract_sni(payload)?;
-        Some(PacketInfo { sni_hostname: sni, src_ip, src_port })
+        Some(PacketInfo {
+            sni_hostname: sni,
+            src_ip,
+            src_port,
+        })
     }
 }
 
@@ -157,14 +199,54 @@ mod platform {
 
     // Same BPF filter as Linux: tcp dst port 443 on Ethernet frames
     const FILTER: [BpfInsn; 8] = [
-        BpfInsn { code: 0x28, jt: 0, jf: 0, k: 12 },
-        BpfInsn { code: 0x15, jt: 0, jf: 5, k: 0x0800 },
-        BpfInsn { code: 0x30, jt: 0, jf: 0, k: 23 },
-        BpfInsn { code: 0x15, jt: 0, jf: 3, k: 6 },
-        BpfInsn { code: 0x28, jt: 0, jf: 0, k: 36 },
-        BpfInsn { code: 0x15, jt: 0, jf: 1, k: 443 },
-        BpfInsn { code: 0x06, jt: 0, jf: 0, k: 0xffff },
-        BpfInsn { code: 0x06, jt: 0, jf: 0, k: 0 },
+        BpfInsn {
+            code: 0x28,
+            jt: 0,
+            jf: 0,
+            k: 12,
+        },
+        BpfInsn {
+            code: 0x15,
+            jt: 0,
+            jf: 5,
+            k: 0x0800,
+        },
+        BpfInsn {
+            code: 0x30,
+            jt: 0,
+            jf: 0,
+            k: 23,
+        },
+        BpfInsn {
+            code: 0x15,
+            jt: 0,
+            jf: 3,
+            k: 6,
+        },
+        BpfInsn {
+            code: 0x28,
+            jt: 0,
+            jf: 0,
+            k: 36,
+        },
+        BpfInsn {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: 443,
+        },
+        BpfInsn {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: 0xffff,
+        },
+        BpfInsn {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
     ];
 
     pub fn capture<F: FnMut(PacketInfo)>(
@@ -200,7 +282,10 @@ mod platform {
         ioctl(fd, BIOCIMMEDIATE, &one);
 
         // Install BPF filter
-        let prog = BpfProgram { bf_len: FILTER.len() as u32, bf_insns: FILTER.as_ptr() };
+        let prog = BpfProgram {
+            bf_len: FILTER.len() as u32,
+            bf_insns: FILTER.as_ptr(),
+        };
         if ioctl(fd, BIOCSETF, &prog) < 0 {
             close(fd);
             return Err(format!("BIOCSETF failed: {}", *libc::__error()).into());
@@ -284,7 +369,11 @@ mod platform {
         let doff = ((tcp[12] >> 4) as usize) * 4;
         let payload = tcp.get(doff..)?;
         let sni = super::super::sni::extract_sni(payload)?;
-        Some(PacketInfo { sni_hostname: sni, src_ip, src_port })
+        Some(PacketInfo {
+            sni_hostname: sni,
+            src_ip,
+            src_port,
+        })
     }
 
     unsafe fn open_bpf() -> Result<libc::c_int, Box<dyn std::error::Error>> {
@@ -321,7 +410,7 @@ mod platform {
             ws2def::{AF_INET, IPPROTO_IP, SOCKADDR, SOCKADDR_IN},
         },
         um::winsock2::{
-            closesocket, recv, socket, bind, WSACleanup, WSAGetLastError, WSAIoctl, WSAStartup,
+            bind, closesocket, recv, socket, WSACleanup, WSAGetLastError, WSAIoctl, WSAStartup,
             INVALID_SOCKET, SOCK_RAW, WSADATA,
         },
     };
@@ -453,7 +542,11 @@ mod platform {
         let doff = ((tcp[12] >> 4) as usize) * 4;
         let payload = tcp.get(doff..)?;
         let sni = super::super::sni::extract_sni(payload)?;
-        Some(PacketInfo { sni_hostname: sni, src_ip, src_port })
+        Some(PacketInfo {
+            sni_hostname: sni,
+            src_ip,
+            src_port,
+        })
     }
 }
 
@@ -461,9 +554,7 @@ mod platform {
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod platform {
-    pub fn capture<F: FnMut(super::PacketInfo)>(
-        _: F,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn capture<F: FnMut(super::PacketInfo)>(_: F) -> Result<(), Box<dyn std::error::Error>> {
         Err("packet capture is not implemented for this platform".into())
     }
 }

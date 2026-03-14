@@ -5,6 +5,41 @@ pub struct PacketInfo {
     pub src_port: u16,
 }
 
+/// Parse an IPv4/TCP packet starting at the IP header and extract SNI.
+/// Shared by all platform capture backends.
+fn parse_ipv4_tcp(ip: &[u8]) -> Option<PacketInfo> {
+    if ip.len() < 20 || ip[9] != 6 {
+        return None; // TCP only
+    }
+    let ihl = ((ip[0] & 0x0f) as usize) * 4;
+    let src_ip = format!("{}.{}.{}.{}", ip[12], ip[13], ip[14], ip[15]);
+    let tcp = ip.get(ihl..)?;
+    if tcp.len() < 20 {
+        return None;
+    }
+    let src_port = u16::from_be_bytes([tcp[0], tcp[1]]);
+    let doff = ((tcp[12] >> 4) as usize) * 4;
+    let payload = tcp.get(doff..)?;
+    let sni = super::sni::extract_sni(payload)?;
+    Some(PacketInfo {
+        sni_hostname: sni,
+        src_ip,
+        src_port,
+    })
+}
+
+/// Parse an Ethernet frame, validate IPv4 ethertype, and extract SNI.
+/// Used by Linux (AF_PACKET) and macOS (BPF) which both deliver raw Ethernet frames.
+fn parse_eth_frame(data: &[u8]) -> Option<PacketInfo> {
+    if data.len() < 14 {
+        return None;
+    }
+    if u16::from_be_bytes([data[12], data[13]]) != 0x0800 {
+        return None; // IPv4 only
+    }
+    parse_ipv4_tcp(&data[14..])
+}
+
 // ── Linux: AF_PACKET raw socket ───────────────────────────────────────────────
 //
 // Opens an AF_PACKET/SOCK_RAW socket (kernel built-in, no libpcap).
@@ -30,6 +65,11 @@ mod platform {
     //   jeq  #443, +0, +1  ; port 443 → continue, else drop
     //   ret  #0xffff        ; accept
     //   ret  #0             ; reject
+    //
+    // Note: offset 36 assumes a 20-byte IP header (no options). If IP options are
+    // present (IHL > 5), this filter may pass non-443 packets or miss 443 packets.
+    // The userspace parser handles variable IHL correctly, so this is safe — just
+    // slightly less efficient as a pre-filter.
     const FILTER: [sock_filter; 8] = [
         sock_filter {
             code: 0x28,
@@ -121,44 +161,13 @@ mod platform {
                 if n <= 0 {
                     break;
                 }
-                if let Some(info) = parse_eth_frame(&buf[..n as usize]) {
+                if let Some(info) = super::parse_eth_frame(&buf[..n as usize]) {
                     on_packet(info);
                 }
             }
             close(sock);
         }
         Ok(())
-    }
-
-    fn parse_eth_frame(data: &[u8]) -> Option<PacketInfo> {
-        if data.len() < 14 {
-            return None;
-        }
-        if u16::from_be_bytes([data[12], data[13]]) != 0x0800 {
-            return None; // IPv4 only
-        }
-        parse_ipv4_tcp(&data[14..])
-    }
-
-    fn parse_ipv4_tcp(ip: &[u8]) -> Option<PacketInfo> {
-        if ip.len() < 20 || ip[9] != 6 {
-            return None; // TCP only
-        }
-        let ihl = ((ip[0] & 0x0f) as usize) * 4;
-        let src_ip = format!("{}.{}.{}.{}", ip[12], ip[13], ip[14], ip[15]);
-        let tcp = ip.get(ihl..)?;
-        if tcp.len() < 20 {
-            return None;
-        }
-        let src_port = u16::from_be_bytes([tcp[0], tcp[1]]);
-        let doff = ((tcp[12] >> 4) as usize) * 4;
-        let payload = tcp.get(doff..)?;
-        let sni = super::super::sni::extract_sni(payload)?;
-        Some(PacketInfo {
-            sni_hostname: sni,
-            src_ip,
-            src_port,
-        })
     }
 }
 
@@ -327,7 +336,7 @@ mod platform {
             }
 
             let frame = &buf[hdrlen..hdrlen + caplen];
-            if let Some(info) = parse_eth_frame(frame) {
+            if let Some(info) = super::parse_eth_frame(frame) {
                 on_packet(info);
             }
 
@@ -343,37 +352,6 @@ mod platform {
     // BPF_WORDALIGN: round up to sizeof(long) = 8 on 64-bit macOS
     fn bpf_wordalign(x: usize) -> usize {
         (x + 7) & !7
-    }
-
-    fn parse_eth_frame(data: &[u8]) -> Option<PacketInfo> {
-        if data.len() < 14 {
-            return None;
-        }
-        if u16::from_be_bytes([data[12], data[13]]) != 0x0800 {
-            return None;
-        }
-        parse_ipv4_tcp(&data[14..])
-    }
-
-    fn parse_ipv4_tcp(ip: &[u8]) -> Option<PacketInfo> {
-        if ip.len() < 20 || ip[9] != 6 {
-            return None;
-        }
-        let ihl = ((ip[0] & 0x0f) as usize) * 4;
-        let src_ip = format!("{}.{}.{}.{}", ip[12], ip[13], ip[14], ip[15]);
-        let tcp = ip.get(ihl..)?;
-        if tcp.len() < 20 {
-            return None;
-        }
-        let src_port = u16::from_be_bytes([tcp[0], tcp[1]]);
-        let doff = ((tcp[12] >> 4) as usize) * 4;
-        let payload = tcp.get(doff..)?;
-        let sni = super::super::sni::extract_sni(payload)?;
-        Some(PacketInfo {
-            sni_hostname: sni,
-            src_ip,
-            src_port,
-        })
     }
 
     unsafe fn open_bpf() -> Result<libc::c_int, Box<dyn std::error::Error>> {
@@ -515,6 +493,7 @@ mod platform {
     }
 
     /// SIO_RCVALL gives raw IPv4 packets with no Ethernet header.
+    /// Filters to port 443 in userspace (no kernel BPF on Windows with SIO_RCVALL).
     fn parse_ip_packet(data: &[u8]) -> Option<PacketInfo> {
         if data.len() < 20 {
             return None;
@@ -522,31 +501,19 @@ mod platform {
         if (data[0] >> 4) != 4 {
             return None; // IPv4 only
         }
-        if data[9] != 6 {
-            return None; // TCP only
-        }
 
+        // Check dst port 443 before calling shared parser (Windows has no kernel filter)
         let ihl = ((data[0] & 0x0f) as usize) * 4;
         let tcp = data.get(ihl..)?;
-        if tcp.len() < 20 {
+        if tcp.len() < 4 {
+            return None;
+        }
+        let dst_port = u16::from_be_bytes([tcp[2], tcp[3]]);
+        if dst_port != 443 {
             return None;
         }
 
-        let dst_port = u16::from_be_bytes([tcp[2], tcp[3]]);
-        if dst_port != 443 {
-            return None; // port 443 only (BPF handles this on Linux/macOS)
-        }
-
-        let src_ip = format!("{}.{}.{}.{}", data[12], data[13], data[14], data[15]);
-        let src_port = u16::from_be_bytes([tcp[0], tcp[1]]);
-        let doff = ((tcp[12] >> 4) as usize) * 4;
-        let payload = tcp.get(doff..)?;
-        let sni = super::super::sni::extract_sni(payload)?;
-        Some(PacketInfo {
-            sni_hostname: sni,
-            src_ip,
-            src_port,
-        })
+        super::parse_ipv4_tcp(data)
     }
 }
 

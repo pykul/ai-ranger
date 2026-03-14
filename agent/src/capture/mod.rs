@@ -1,3 +1,3 @@
-pub mod mitm;
+mod mitm;
 pub mod pcap;
 pub mod sni;

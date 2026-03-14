@@ -43,7 +43,11 @@ pub fn classify(hostname: &str) -> Option<&'static str> {
     let hostname = hostname.trim_end_matches('.');
     for provider in PROVIDERS {
         for &known in provider.hostnames {
-            if hostname == known || hostname.ends_with(&format!(".{known}")) {
+            if hostname == known
+                || (hostname.len() > known.len()
+                    && hostname.ends_with(known)
+                    && hostname.as_bytes()[hostname.len() - known.len() - 1] == b'.')
+            {
                 return Some(provider.name);
             }
         }

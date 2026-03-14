@@ -112,6 +112,80 @@ fn parse_sni_extension(data: &[u8]) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// Build a minimal but valid TLS ClientHello containing an SNI extension.
+    fn build_client_hello(hostname: &str) -> Vec<u8> {
+        // SNI extension body: list_length(2) + type(1) + name_length(2) + hostname
+        let name_bytes = hostname.as_bytes();
+        let sni_entry_len = 1 + 2 + name_bytes.len(); // type + name_length + name
+        let sni_list_len = sni_entry_len;
+        let sni_ext_data_len = 2 + sni_entry_len; // list_length + entry
+
+        // Extension: type(2) + length(2) + data
+        let ext_len = 4 + sni_ext_data_len;
+
+        // ClientHello body: version(2) + random(32) + session_id_len(1) +
+        //   cipher_suites_len(2) + one_suite(2) + comp_methods_len(1) + null_comp(1) +
+        //   extensions_len(2) + extension
+        let hello_body_len = 2 + 32 + 1 + 2 + 2 + 1 + 1 + 2 + ext_len;
+
+        // Handshake header: type(1) + length(3)
+        let handshake_len = 4 + hello_body_len;
+
+        // TLS record: type(1) + version(2) + length(2)
+        let mut buf = Vec::with_capacity(5 + handshake_len);
+
+        // TLS record header
+        buf.push(0x16); // handshake
+        buf.extend_from_slice(&[0x03, 0x01]); // TLS 1.0 (record layer version)
+        buf.extend_from_slice(&(handshake_len as u16).to_be_bytes());
+
+        // Handshake header
+        buf.push(0x01); // ClientHello
+        let hl = hello_body_len as u32;
+        buf.extend_from_slice(&[
+            ((hl >> 16) & 0xff) as u8,
+            ((hl >> 8) & 0xff) as u8,
+            (hl & 0xff) as u8,
+        ]);
+
+        // ClientHello body
+        buf.extend_from_slice(&[0x03, 0x03]); // TLS 1.2
+        buf.extend_from_slice(&[0u8; 32]); // random
+        buf.push(0); // session ID length = 0
+        buf.extend_from_slice(&2u16.to_be_bytes()); // cipher suites length = 2
+        buf.extend_from_slice(&[0x00, 0x2f]); // TLS_RSA_WITH_AES_128_CBC_SHA
+        buf.push(1); // compression methods length = 1
+        buf.push(0); // null compression
+
+        // Extensions
+        buf.extend_from_slice(&(ext_len as u16).to_be_bytes());
+
+        // SNI extension (type 0x0000)
+        buf.extend_from_slice(&[0x00, 0x00]); // extension type = SNI
+        buf.extend_from_slice(&(sni_ext_data_len as u16).to_be_bytes());
+        buf.extend_from_slice(&(sni_list_len as u16).to_be_bytes()); // server name list length
+        buf.push(0x00); // host_name type
+        buf.extend_from_slice(&(name_bytes.len() as u16).to_be_bytes());
+        buf.extend_from_slice(name_bytes);
+
+        buf
+    }
+
+    #[test]
+    fn extracts_sni_from_valid_client_hello() {
+        let hello = build_client_hello("api.anthropic.com");
+        assert_eq!(extract_sni(&hello), Some("api.anthropic.com".to_string()));
+    }
+
+    #[test]
+    fn extracts_long_hostname() {
+        let hello = build_client_hello("generativelanguage.googleapis.com");
+        assert_eq!(
+            extract_sni(&hello),
+            Some("generativelanguage.googleapis.com".to_string())
+        );
+    }
+
     #[test]
     fn rejects_empty_payload() {
         assert_eq!(extract_sni(&[]), None);

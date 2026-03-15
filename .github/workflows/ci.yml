@@ -70,20 +70,32 @@ jobs:
 
       - name: Smoke test (macOS)
         if: runner.os == 'macOS'
-        # Best-effort: determines whether the GitHub Actions macOS runner
-        # permits BPF device access for raw packet capture. Failure here
-        # does not indicate a bug in the agent, only a CI environment
-        # limitation (macOS runners may restrict /dev/bpf* access).
         continue-on-error: true
         run: |
           echo "Running as: $(whoami)"
           BINARY="${GITHUB_WORKSPACE}/target/release/ai-ranger"
           ls -la "$BINARY"
+
+          echo "--- network interfaces ---"
+          ifconfig -l
+          echo "--- default route ---"
+          route -n get default 2>/dev/null | grep interface || true
+          echo "--- tcpdump test (5s background) ---"
+          /usr/bin/sudo tcpdump -i en0 -c 5 -n port 443 > /tmp/tcpdump.log 2>&1 &
+          TCPDUMP_PID=$!
+
           /usr/bin/sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
-          sleep 5
-          curl -s https://api.openai.com > /dev/null || true
-          sleep 2
+          sleep 3
+          curl -sv https://api.openai.com > /dev/null 2>/tmp/curl-debug.log || true
+          sleep 3
           /usr/bin/sudo pkill ai-ranger || true
+          /usr/bin/sudo kill $TCPDUMP_PID 2>/dev/null || true
+          sleep 1
+
+          echo "--- curl debug ---"
+          cat /tmp/curl-debug.log
+          echo "--- tcpdump output ---"
+          cat /tmp/tcpdump.log
           echo "--- agent log ---"
           cat /tmp/ai-ranger-test.log
           grep -q '"provider"' /tmp/ai-ranger-test.log

@@ -34,6 +34,9 @@ jobs:
       - name: Build
         run: cargo build
 
+      - name: Build release (for smoke test)
+        run: cargo build --release
+
       - name: Test
         run: cargo test
 
@@ -43,6 +46,69 @@ jobs:
       - name: Format check
         if: runner.os == 'Linux'
         run: cargo fmt --check
+
+      # ── Smoke tests ────────────────────────────────────────────────────
+      # Start the agent, trigger AI provider traffic, verify JSON output.
+      # Linux and Windows should work reliably with root/Administrator on
+      # GitHub-hosted runners. macOS BPF access may be restricted by the
+      # runner environment — failure there does not indicate an agent bug.
+
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo ./target/release/ai-ranger > /tmp/ai-ranger-test.log 2>&1 &
+          sleep 3
+          curl -s https://api.openai.com > /dev/null || true
+          sleep 2
+          sudo pkill ai-ranger || true
+          echo "--- agent log ---"
+          cat /tmp/ai-ranger-test.log
+          grep -q '"provider"' /tmp/ai-ranger-test.log
+
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        # Best-effort: determines whether the GitHub Actions macOS runner
+        # permits BPF device access for raw packet capture. Failure here
+        # does not indicate a bug in the agent, only a CI environment
+        # limitation (macOS runners may restrict /dev/bpf* access).
+        continue-on-error: true
+        run: |
+          sudo ./target/release/ai-ranger > /tmp/ai-ranger-test.log 2>&1 &
+          sleep 5
+          curl -s https://api.openai.com > /dev/null || true
+          sleep 2
+          sudo pkill ai-ranger || true
+          echo "--- agent log ---"
+          cat /tmp/ai-ranger-test.log
+          grep -q '"provider"' /tmp/ai-ranger-test.log
+
+      - name: Verify Administrator privileges (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          Write-Host "Running as Administrator: $isAdmin"
+          if (-not $isAdmin) { throw "SIO_RCVALL requires Administrator privileges" }
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Start-Process -FilePath ".\target\release\ai-ranger.exe" `
+            -RedirectStandardOutput "C:\ai-ranger-test.log" `
+            -RedirectStandardError "C:\ai-ranger-test-err.log" `
+            -NoNewWindow
+          Start-Sleep -Seconds 3
+          curl.exe -s https://api.openai.com > $null 2>&1
+          Start-Sleep -Seconds 2
+          Stop-Process -Name "ai-ranger" -Force -ErrorAction SilentlyContinue
+          Write-Host "--- agent log ---"
+          Get-Content "C:\ai-ranger-test.log"
+          Write-Host "--- agent errors ---"
+          Get-Content "C:\ai-ranger-test-err.log"
+          if (-not (Select-String -Path "C:\ai-ranger-test.log" -Pattern '"provider"' -Quiet)) {
+            throw "No provider event detected in agent output"
+          }
 
   # ── Gateway (Python) ─────────────────────────────────────────────────────
   # Uncomment when gateway/ is created (Phase 2)

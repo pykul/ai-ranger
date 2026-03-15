@@ -201,14 +201,15 @@ fn process_path_impl(pid: u32) -> Option<String> {
 
 // ── macOS ─────────────────────────────────────────────────────────────────────
 //
-// MACOS-UNVERIFIED: This entire block requires compile-test on Apple hardware.
-// Specifically:
-//   - proc_pidinfo / proc_listallpids / proc_name FFI declarations
-//   - SocketFdInfo, InSockInfo, and related struct layouts and sizes
-//   - Field offsets (insi_lport, insi_fport) in the in_sockinfo struct
-//
 // Uses proc_pidinfo(PROC_PIDLISTFDS) to find which process owns a socket on
 // a given port, and proc_name() for PID→name. No shell, no subprocess.
+//
+// For PROC_PIDFDSOCKETINFO, we use a raw byte buffer instead of repr(C)
+// structs because the XNU socket_fdinfo struct hierarchy is deeply nested
+// and the struct sizes/offsets are critical — a wrong padding byte breaks
+// the proc_pidinfo call entirely (it validates exact buffer size).
+//
+// Offsets computed from XNU bsd/sys/proc_info.h (see comments in code).
 
 #[cfg(target_os = "macos")]
 mod macos_proc {
@@ -219,52 +220,40 @@ mod macos_proc {
     const PROX_FDTYPE_SOCKET: u32 = 2;
     const PROC_PIDFDSOCKETINFO: c_int = 3;
 
+    // sizeof(struct socket_fdinfo) on 64-bit macOS.
+    //
+    // socket_fdinfo = proc_fileinfo(24) + socket_info(376) = 400 bytes
+    //
+    // struct proc_fileinfo:
+    //   fi_openflags(u32) + fi_status(u32) + fi_offset(i64)
+    //   + fi_type(i32) + fi_guardflags(u32) = 24 bytes
+    //
+    // struct socket_info:
+    //   vinfo_stat(136) + soi_so(u64) + soi_pcb(u64) + soi_type(i32)
+    //   + soi_protocol(i32) + soi_proto(union, 120) + soi_family(i32)
+    //   + soi_options(i32) + soi_linger(i32) + soi_state(i32)
+    //   + soi_qlen(i32) + soi_incqlen(i32) + soi_qlimit(i32)
+    //   + soi_timeo(i32) + soi_error(u16) + pad(2) + soi_oobmark(u32)
+    //   + soi_rcv(sockbuf_info, 24) + soi_snd(sockbuf_info, 24)
+    //   + soi_kind(i32) + soi_reservedspace(u32) = 376 bytes
+    const SOCKET_FDINFO_SIZE: c_int = 400;
+
+    // Offsets within socket_fdinfo for the fields we need:
+    //
+    // socket_info starts at byte 24 (after proc_fileinfo).
+    //   soi_type    = 24 + 136(vinfo_stat) + 8(soi_so) + 8(soi_pcb) = 176
+    //   soi_proto   = 24 + 136 + 8 + 8 + 4(soi_type) + 4(soi_protocol) = 184
+    //   insi_lport  = soi_proto + 4(insi_fport) = 188
+    //   soi_family  = soi_proto + 120(union size) = 304
+    const OFF_SOI_TYPE: usize = 176;
+    const OFF_INSI_LPORT: usize = 188;
+    const OFF_SOI_FAMILY: usize = 304;
+
     #[repr(C)]
     #[derive(Copy, Clone)]
     pub struct ProcFdInfo {
         pub proc_fd: i32,
         pub proc_fdtype: u32,
-    }
-
-    // socket_fdinfo contains the socket info we need
-    // We only care about the local port, which is at a known offset.
-    // Full struct is large (~700 bytes) — we define only what we need.
-    #[repr(C)]
-    pub struct SocketFdInfo {
-        pub pfi: ProcFdInfo,
-        pub psi: SocketInfo,
-    }
-
-    #[repr(C)]
-    pub struct SocketInfo {
-        pub soi_stat: SoiStat,
-        pub soi_family: c_int,
-        pub soi_type: c_int,
-        pub soi_protocol: c_int,
-        pub soi_proto: SoiProto,
-    }
-
-    #[repr(C)]
-    pub struct SoiStat {
-        _pad: [u8; 168], // stat fields we don't need
-    }
-
-    #[repr(C)]
-    pub struct SoiProto {
-        pub pri_tcp: PriTcp,
-    }
-
-    #[repr(C)]
-    pub struct PriTcp {
-        pub tcpsi_ini: InSockInfo,
-        _rest: [u8; 64], // remaining TCP-specific fields
-    }
-
-    #[repr(C)]
-    pub struct InSockInfo {
-        pub insi_fport: c_int, // foreign port
-        pub insi_lport: c_int, // local port
-        _rest: [u8; 376],      // remaining in_sockinfo fields
     }
 
     extern "C" {
@@ -277,14 +266,15 @@ mod macos_proc {
             bufsize: c_int,
         ) -> c_int;
         pub fn proc_name(pid: c_int, buffer: *mut c_char, bufsize: u32) -> c_int;
-        // MACOS-UNVERIFIED: proc_pidpath FFI declaration. Requires compile-test
-        // on Apple hardware to verify buffer size and return value semantics.
         pub fn proc_pidpath(pid: c_int, buffer: *mut c_char, bufsize: u32) -> c_int;
     }
 
-    pub fn find_pid_for_port(src_port: u16) -> Option<u32> {
-        let target_port = src_port as c_int;
+    /// Read a little-endian i32 from a byte slice at the given offset.
+    fn read_i32(buf: &[u8], off: usize) -> i32 {
+        i32::from_ne_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
+    }
 
+    pub fn find_pid_for_port(src_port: u16) -> Option<u32> {
         // Get all PIDs
         let count = unsafe { proc_listallpids(std::ptr::null_mut(), 0) };
         if count <= 0 {
@@ -337,25 +327,35 @@ mod macos_proc {
                 if fd_info.proc_fdtype != PROX_FDTYPE_SOCKET {
                     continue;
                 }
-                let mut si: SocketFdInfo = unsafe { std::mem::zeroed() };
+
+                // Use a raw byte buffer — proc_pidinfo validates exact size.
+                let mut buf = [0u8; SOCKET_FDINFO_SIZE as usize];
                 let ret = unsafe {
                     proc_pidinfo(
                         pid,
                         PROC_PIDFDSOCKETINFO,
                         fd_info.proc_fd as u64,
-                        &mut si as *mut _ as *mut c_void,
-                        std::mem::size_of::<SocketFdInfo>() as c_int,
+                        buf.as_mut_ptr() as *mut c_void,
+                        SOCKET_FDINFO_SIZE,
                     )
                 };
-                if ret <= 0 {
+                if ret != SOCKET_FDINFO_SIZE {
                     continue;
                 }
-                // AF_INET = 2, SOCK_STREAM = 1
-                if si.psi.soi_family == 2 && si.psi.soi_type == 1 {
-                    let local_port = si.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport;
-                    if local_port == target_port {
-                        return Some(pid as u32);
-                    }
+
+                // AF_INET = 2 or AF_INET6 = 30, SOCK_STREAM = 1
+                let soi_type = read_i32(&buf, OFF_SOI_TYPE);
+                let soi_family = read_i32(&buf, OFF_SOI_FAMILY);
+                if soi_type != 1 || (soi_family != 2 && soi_family != 30) {
+                    continue;
+                }
+
+                // insi_lport is in network byte order (big-endian u16 in an i32).
+                let raw_port = read_i32(&buf, OFF_INSI_LPORT);
+                let local_port = u16::from_be((raw_port & 0xFFFF) as u16);
+
+                if local_port == src_port {
+                    return Some(pid as u32);
                 }
             }
         }
@@ -363,8 +363,6 @@ mod macos_proc {
         None
     }
 
-    // MACOS-UNVERIFIED: proc_pidpath returns the full executable path for a PID.
-    // Requires compile-test on Apple hardware.
     pub fn get_process_path(pid: u32) -> Option<String> {
         const PROC_PIDPATHINFO_MAXSIZE: u32 = 4096;
         let mut buf = [0u8; PROC_PIDPATHINFO_MAXSIZE as usize];

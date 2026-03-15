@@ -57,11 +57,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           echo "Running as: $(whoami)"
-          ./target/release/ai-ranger > /tmp/ai-ranger-test.log 2>&1 &
+          BINARY="$(pwd)/target/release/ai-ranger"
+          ls -la "$BINARY"
+          sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
           sleep 3
           curl -s https://api.openai.com > /dev/null || true
           sleep 2
-          pkill ai-ranger || true
+          sudo pkill ai-ranger || true
           echo "--- agent log ---"
           cat /tmp/ai-ranger-test.log
           grep -q '"provider"' /tmp/ai-ranger-test.log
@@ -75,11 +77,13 @@ jobs:
         continue-on-error: true
         run: |
           echo "Running as: $(whoami)"
-          ./target/release/ai-ranger > /tmp/ai-ranger-test.log 2>&1 &
+          BINARY="$(pwd)/target/release/ai-ranger"
+          ls -la "$BINARY"
+          sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
           sleep 5
           curl -s https://api.openai.com > /dev/null || true
           sleep 2
-          pkill ai-ranger || true
+          sudo pkill ai-ranger || true
           echo "--- agent log ---"
           cat /tmp/ai-ranger-test.log
           grep -q '"provider"' /tmp/ai-ranger-test.log

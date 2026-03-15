@@ -53,6 +53,15 @@ jobs:
       # GitHub-hosted runners. macOS BPF access may be restricted by the
       # runner environment — failure there does not indicate an agent bug.
 
+      - name: Debug target directory
+        run: |
+          echo "pwd: $(pwd)"
+          echo "GITHUB_WORKSPACE: ${GITHUB_WORKSPACE}"
+          echo "--- listing target/release (first 30) ---"
+          ls -la target/release/ | head -30 || echo "target/release not found"
+          echo "--- find ai-ranger binaries ---"
+          find "${GITHUB_WORKSPACE}" -name "ai-ranger" -o -name "ai-ranger.exe" 2>/dev/null || true
+
       - name: Smoke test (Linux)
         if: runner.os == 'Linux'
         run: |

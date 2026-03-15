@@ -425,19 +425,12 @@ mod platform {
         // Query kernel buffer size
         let mut buf_len: u32 = 0;
         ioctl(fd, BIOCGBLEN, &mut buf_len);
-        eprintln!("[ai-ranger] BPF buffer size: {buf_len}");
         let mut buf = vec![0u8; buf_len.max(4096) as usize];
 
-        let mut read_count: u64 = 0;
         loop {
             let n = read(fd, buf.as_mut_ptr() as *mut c_void, buf.len());
             if n <= 0 {
-                eprintln!("[ai-ranger] BPF read returned {n} (errno: {})", *libc::__error());
                 break;
-            }
-            read_count += 1;
-            if read_count <= 5 {
-                eprintln!("[ai-ranger] BPF read #{read_count}: {n} bytes");
             }
             drain_bpf_buf(&buf[..n as usize], on_packet);
         }
@@ -448,39 +441,22 @@ mod platform {
 
     /// Walk all bpf_hdr-prefixed records in a BPF read buffer.
     ///
-    /// bpf_hdr layout on macOS 64-bit:
-    ///   [0..8]   tv_sec  (long = 8 bytes)
-    ///   [8..12]  tv_usec (int  = 4 bytes)
-    ///   [12..16] padding (4 bytes, struct timeval padded to 16)
-    ///   [16..20] bh_caplen  (u32)
-    ///   [20..24] bh_datalen (u32)
-    ///   [24..26] bh_hdrlen  (u16) — actual header size (≥26, word-aligned)
+    /// macOS bpf_hdr uses timeval32 (not timeval) regardless of arch:
+    ///   [0..4]   tv_sec   (int32_t)
+    ///   [4..8]   tv_usec  (int32_t)
+    ///   [8..12]  bh_caplen  (u32)
+    ///   [12..16] bh_datalen (u32)
+    ///   [16..18] bh_hdrlen  (u16) — actual header size (≥18, word-aligned)
     fn drain_bpf_buf<F: FnMut(PacketInfo)>(mut buf: &[u8], on_packet: &mut F) {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
+        while buf.len() >= 18 {
+            let caplen = u32::from_ne_bytes([buf[8], buf[9], buf[10], buf[11]]) as usize;
+            let hdrlen = u16::from_ne_bytes([buf[16], buf[17]]) as usize;
 
-        while buf.len() >= 26 {
-            let caplen = u32::from_ne_bytes([buf[16], buf[17], buf[18], buf[19]]) as usize;
-            let hdrlen = u16::from_ne_bytes([buf[24], buf[25]]) as usize;
-
-            if hdrlen < 26 || buf.len() < hdrlen + caplen {
+            if hdrlen < 18 || buf.len() < hdrlen + caplen {
                 break;
             }
 
             let frame = &buf[hdrlen..hdrlen + caplen];
-            let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
-            if count < 5 {
-                let ethertype = if frame.len() >= 14 {
-                    u16::from_be_bytes([frame[12], frame[13]])
-                } else {
-                    0
-                };
-                eprintln!(
-                    "[ai-ranger] BPF frame #{}: caplen={caplen} hdrlen={hdrlen} framelen={} ethertype=0x{ethertype:04x}",
-                    count + 1,
-                    frame.len()
-                );
-            }
             if let Some(info) = super::parse_eth_frame(frame) {
                 on_packet(info);
             }
@@ -494,9 +470,9 @@ mod platform {
         }
     }
 
-    // BPF_WORDALIGN: round up to sizeof(long) = 8 on 64-bit macOS
+    // BPF_WORDALIGN: round up to sizeof(int32_t) = 4 on macOS
     fn bpf_wordalign(x: usize) -> usize {
-        (x + 7) & !7
+        (x + 3) & !3
     }
 
     unsafe fn open_bpf() -> Result<libc::c_int, Box<dyn std::error::Error>> {

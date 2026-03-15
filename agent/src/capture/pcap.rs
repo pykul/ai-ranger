@@ -112,6 +112,7 @@ fn parse_udp_dns(udp: &[u8], src_ip: String, dst_ip: String) -> Option<PacketInf
 ///
 /// Extension headers are walked until TCP or UDP is found. Unknown extension
 /// header types cause the packet to be skipped gracefully.
+#[cfg(not(windows))] // Windows uses ETW DNS-Client for IPv6, not raw packet capture
 fn parse_ipv6_packet(ip6: &[u8]) -> Option<PacketInfo> {
     if ip6.len() < 40 {
         return None;

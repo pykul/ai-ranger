@@ -425,12 +425,19 @@ mod platform {
         // Query kernel buffer size
         let mut buf_len: u32 = 0;
         ioctl(fd, BIOCGBLEN, &mut buf_len);
+        eprintln!("[ai-ranger] BPF buffer size: {buf_len}");
         let mut buf = vec![0u8; buf_len.max(4096) as usize];
 
+        let mut read_count: u64 = 0;
         loop {
             let n = read(fd, buf.as_mut_ptr() as *mut c_void, buf.len());
             if n <= 0 {
+                eprintln!("[ai-ranger] BPF read returned {n} (errno: {})", *libc::__error());
                 break;
+            }
+            read_count += 1;
+            if read_count <= 5 {
+                eprintln!("[ai-ranger] BPF read #{read_count}: {n} bytes");
             }
             drain_bpf_buf(&buf[..n as usize], on_packet);
         }
@@ -449,6 +456,9 @@ mod platform {
     ///   [20..24] bh_datalen (u32)
     ///   [24..26] bh_hdrlen  (u16) — actual header size (≥26, word-aligned)
     fn drain_bpf_buf<F: FnMut(PacketInfo)>(mut buf: &[u8], on_packet: &mut F) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
+
         while buf.len() >= 26 {
             let caplen = u32::from_ne_bytes([buf[16], buf[17], buf[18], buf[19]]) as usize;
             let hdrlen = u16::from_ne_bytes([buf[24], buf[25]]) as usize;
@@ -458,6 +468,19 @@ mod platform {
             }
 
             let frame = &buf[hdrlen..hdrlen + caplen];
+            let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
+            if count < 5 {
+                let ethertype = if frame.len() >= 14 {
+                    u16::from_be_bytes([frame[12], frame[13]])
+                } else {
+                    0
+                };
+                eprintln!(
+                    "[ai-ranger] BPF frame #{}: caplen={caplen} hdrlen={hdrlen} framelen={} ethertype=0x{ethertype:04x}",
+                    count + 1,
+                    frame.len()
+                );
+            }
             if let Some(info) = super::parse_eth_frame(frame) {
                 on_packet(info);
             }

@@ -53,7 +53,10 @@ impl WebhookSink {
 
 #[async_trait]
 impl EventSink for WebhookSink {
-    async fn send(&self, event: &AiConnectionEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn send(
+        &self,
+        event: &AiConnectionEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let value = serde_json::to_value(event)?;
         let should_flush;
         {
@@ -74,5 +77,4 @@ impl EventSink for WebhookSink {
         };
         self.send_batch(&events).await
     }
-
 }

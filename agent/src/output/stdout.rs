@@ -7,7 +7,10 @@ pub struct StdoutSink;
 
 #[async_trait]
 impl EventSink for StdoutSink {
-    async fn send(&self, event: &AiConnectionEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn send(
+        &self,
+        event: &AiConnectionEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let json = serde_json::to_string(event)?;
         println!("{json}");
         Ok(())

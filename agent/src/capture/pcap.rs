@@ -217,11 +217,36 @@ mod platform {
     //   3: ret  #0                  ; reject
     //   4: ret  #0xffff             ; accept
     const FILTER: [sock_filter; 5] = [
-        sock_filter { code: 0x28, jt: 0, jf: 0, k: 12 },       // ldh [12]
-        sock_filter { code: 0x15, jt: 2, jf: 0, k: 0x0800 },   // jeq #0x0800 → accept
-        sock_filter { code: 0x15, jt: 1, jf: 0, k: 0x86DD },   // jeq #0x86DD → accept
-        sock_filter { code: 0x06, jt: 0, jf: 0, k: 0 },        // reject
-        sock_filter { code: 0x06, jt: 0, jf: 0, k: 0xffff },   // accept
+        sock_filter {
+            code: 0x28,
+            jt: 0,
+            jf: 0,
+            k: 12,
+        }, // ldh [12]
+        sock_filter {
+            code: 0x15,
+            jt: 2,
+            jf: 0,
+            k: 0x0800,
+        }, // jeq #0x0800 → accept
+        sock_filter {
+            code: 0x15,
+            jt: 1,
+            jf: 0,
+            k: 0x86DD,
+        }, // jeq #0x86DD → accept
+        sock_filter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        }, // reject
+        sock_filter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: 0xffff,
+        }, // accept
     ];
 
     pub fn capture<F: FnMut(PacketInfo)>(
@@ -320,11 +345,36 @@ mod platform {
     // Accepts IPv4 (0x0800) and IPv6 (0x86DD) frames. Port filtering in userspace.
     // Same logic as Linux filter — see comments there.
     const FILTER: [BpfInsn; 5] = [
-        BpfInsn { code: 0x28, jt: 0, jf: 0, k: 12 },       // ldh [12]
-        BpfInsn { code: 0x15, jt: 2, jf: 0, k: 0x0800 },   // jeq #0x0800 → accept
-        BpfInsn { code: 0x15, jt: 1, jf: 0, k: 0x86DD },   // jeq #0x86DD → accept
-        BpfInsn { code: 0x06, jt: 0, jf: 0, k: 0 },        // reject
-        BpfInsn { code: 0x06, jt: 0, jf: 0, k: 0xffff },   // accept
+        BpfInsn {
+            code: 0x28,
+            jt: 0,
+            jf: 0,
+            k: 12,
+        }, // ldh [12]
+        BpfInsn {
+            code: 0x15,
+            jt: 2,
+            jf: 0,
+            k: 0x0800,
+        }, // jeq #0x0800 → accept
+        BpfInsn {
+            code: 0x15,
+            jt: 1,
+            jf: 0,
+            k: 0x86DD,
+        }, // jeq #0x86DD → accept
+        BpfInsn {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        }, // reject
+        BpfInsn {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: 0xffff,
+        }, // accept
     ];
 
     pub fn capture<F: FnMut(PacketInfo)>(

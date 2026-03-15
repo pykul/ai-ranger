@@ -34,7 +34,10 @@ impl EventBuffer {
     }
 
     /// Insert an event into the buffer. Fast (< 1ms).
-    pub fn insert(&self, event: &AiConnectionEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn insert(
+        &self,
+        event: &AiConnectionEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let json = serde_json::to_string(event)?;
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
         conn.execute("INSERT INTO events (json) VALUES (?1)", params![json])?;
@@ -42,7 +45,10 @@ impl EventBuffer {
     }
 
     /// Read up to `limit` events from the buffer. Returns (id, json) pairs.
-    pub fn read_batch(&self, limit: usize) -> Result<Vec<(i64, String)>, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn read_batch(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<(i64, String)>, Box<dyn std::error::Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
         let mut stmt = conn.prepare("SELECT id, json FROM events ORDER BY id LIMIT ?1")?;
         let rows = stmt
@@ -62,21 +68,29 @@ impl EventBuffer {
     }
 
     /// Delete events by IDs after successful upload.
-    pub fn delete_batch(&self, ids: &[i64]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn delete_batch(
+        &self,
+        ids: &[i64],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if ids.is_empty() {
             return Ok(());
         }
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
         // Build a parameterized IN clause
         let placeholders: Vec<String> = ids.iter().map(|_| "?".to_string()).collect();
-        let sql = format!("DELETE FROM events WHERE id IN ({})", placeholders.join(","));
-        let params: Vec<Box<dyn rusqlite::types::ToSql>> =
-            ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>).collect();
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let sql = format!(
+            "DELETE FROM events WHERE id IN ({})",
+            placeholders.join(",")
+        );
+        let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids
+            .iter()
+            .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
         conn.execute(&sql, param_refs.as_slice())?;
         Ok(())
     }
-
 }
 
 #[cfg(test)]

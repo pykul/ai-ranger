@@ -52,7 +52,10 @@ impl HttpSink {
 
 #[async_trait]
 impl EventSink for HttpSink {
-    async fn send(&self, event: &AiConnectionEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn send(
+        &self,
+        event: &AiConnectionEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let should_flush;
         {
             let mut batch = self.batch.lock().await;
@@ -72,7 +75,6 @@ impl EventSink for HttpSink {
         };
         self.send_batch(&events).await
     }
-
 }
 
 /// Clone an event. AiConnectionEvent doesn't derive Clone to keep it lightweight

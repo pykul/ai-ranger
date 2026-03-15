@@ -92,9 +92,7 @@ pub fn init_with_fetched(
                 );
                 return registry;
             }
-            eprintln!(
-                "[ai-ranger] Failed to parse fetched providers, trying local file"
-            );
+            eprintln!("[ai-ranger] Failed to parse fetched providers, trying local file");
         }
 
         // Priority 2: local file in config directory
@@ -130,7 +128,9 @@ pub fn init_with_fetched(
 ///
 /// Matches exact hostnames and subdomains (e.g. "foo.api.openai.com" → "openai").
 pub fn classify(hostname: &str) -> Option<&'static str> {
-    let registry = REGISTRY.get().expect("providers not initialized — call init() first");
+    let registry = REGISTRY
+        .get()
+        .expect("providers not initialized — call init() first");
     let hostname = hostname.trim_end_matches('.');
     for parsed in &registry.providers {
         for known in &parsed.entry.hostnames {
@@ -154,7 +154,9 @@ pub fn classify(hostname: &str) -> Option<&'static str> {
 /// Returns (provider_name, synthetic_provider_host) where provider_host is the
 /// first hostname from the provider entry.
 pub fn classify_ip(dst_ip: &str) -> Option<(&'static str, &'static str)> {
-    let registry = REGISTRY.get().expect("providers not initialized — call init() first");
+    let registry = REGISTRY
+        .get()
+        .expect("providers not initialized — call init() first");
     let ip: IpAddr = dst_ip.parse().ok()?;
     for parsed in &registry.providers {
         if parsed.networks.is_empty() {
@@ -163,14 +165,14 @@ pub fn classify_ip(dst_ip: &str) -> Option<(&'static str, &'static str)> {
         for net in &parsed.networks {
             if net.contains(&ip) {
                 let name: &str = &parsed.entry.name;
-                let host: &str = parsed.entry.hostnames.first().map(|s| s.as_str()).unwrap_or("");
+                let host: &str = parsed
+                    .entry
+                    .hostnames
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 // SAFETY: registry lives in a static OnceLock, so &str has 'static lifetime.
-                return Some(unsafe {
-                    (
-                        &*(name as *const str),
-                        &*(host as *const str),
-                    )
-                });
+                return Some(unsafe { (&*(name as *const str), &*(host as *const str)) });
             }
         }
     }
@@ -313,7 +315,7 @@ mod tests {
         // Completely unrelated
         assert_eq!(classify_ip("8.8.8.8"), None);
         assert_eq!(classify_ip("172.66.0.243"), None); // Cloudflare — no ip_ranges
-        // IPv6 outside Anthropic's range
+                                                       // IPv6 outside Anthropic's range
         assert_eq!(classify_ip("2607:6bc1::1"), None);
     }
 
@@ -323,5 +325,4 @@ mod tests {
         assert_eq!(classify_ip("not-an-ip"), None);
         assert_eq!(classify_ip(""), None);
     }
-
 }

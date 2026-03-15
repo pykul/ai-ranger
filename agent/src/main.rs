@@ -78,9 +78,7 @@ async fn main() {
                     "[ai-ranger] Enrolled as {} (token: {token})",
                     agent_config.agent_id
                 );
-                eprintln!(
-                    "[ai-ranger] Config saved. Backend enrollment will complete in Phase 2."
-                );
+                eprintln!("[ai-ranger] Config saved. Backend enrollment will complete in Phase 2.");
                 return;
             }
             _ => {
@@ -194,28 +192,25 @@ async fn main() {
     let capture_result = tokio::task::spawn_blocking(move || -> Result<(), String> {
         capture::pcap::capture(|packet| {
             // Detection priority: SNI → DNS → IP range fallback.
-            let (provider, provider_host, detection_method) =
-                if !packet.hostname.is_empty() {
-                    // SNI or DNS produced a hostname — try to classify it.
-                    if let Some(provider) = classifier::classify(&packet.hostname) {
-                        let dm = match packet.detection_method {
-                            "dns" => DetectionMethod::Dns,
-                            _ => DetectionMethod::Sni,
-                        };
-                        (provider, packet.hostname.clone(), dm)
-                    } else {
-                        return; // hostname present but not a known provider
-                    }
+            let (provider, provider_host, detection_method) = if !packet.hostname.is_empty() {
+                // SNI or DNS produced a hostname — try to classify it.
+                if let Some(provider) = classifier::classify(&packet.hostname) {
+                    let dm = match packet.detection_method {
+                        "dns" => DetectionMethod::Dns,
+                        _ => DetectionMethod::Sni,
+                    };
+                    (provider, packet.hostname.clone(), dm)
                 } else {
-                    // No hostname (ECH hid SNI, no DNS match) — try IP range fallback.
-                    if let Some((provider, synth_host)) =
-                        classifier::classify_ip(&packet.dst_ip)
-                    {
-                        (provider, synth_host.to_string(), DetectionMethod::IpRange)
-                    } else {
-                        return; // no match by any method
-                    }
-                };
+                    return; // hostname present but not a known provider
+                }
+            } else {
+                // No hostname (ECH hid SNI, no DNS match) — try IP range fallback.
+                if let Some((provider, synth_host)) = classifier::classify_ip(&packet.dst_ip) {
+                    (provider, synth_host.to_string(), DetectionMethod::IpRange)
+                } else {
+                    return; // no match by any method
+                }
+            };
 
             let (process_pid, process_name) = process::pid_and_name(packet.src_port);
             let proc_path = process::process_path(process_pid);

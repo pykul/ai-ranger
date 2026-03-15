@@ -107,7 +107,10 @@ mod tests {
         let ts = 1773506946000i64; // exactly on a 2s boundary
         let id1 = compute_connection_id("10.0.0.1", "api.anthropic.com", ts);
         let id2 = compute_connection_id("10.0.0.1", "api.anthropic.com", ts + 2000);
-        assert_ne!(id1, id2, "different 2-second bucket should produce different ID");
+        assert_ne!(
+            id1, id2,
+            "different 2-second bucket should produce different ID"
+        );
     }
 
     #[test]

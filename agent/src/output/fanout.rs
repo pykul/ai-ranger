@@ -16,7 +16,10 @@ impl FanoutSink {
 
 #[async_trait]
 impl EventSink for FanoutSink {
-    async fn send(&self, event: &AiConnectionEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn send(
+        &self,
+        event: &AiConnectionEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let futures: Vec<_> = self.sinks.iter().map(|s| s.send(event)).collect();
         let results = futures::future::join_all(futures).await;
         for result in results {
@@ -33,5 +36,4 @@ impl EventSink for FanoutSink {
         }
         Ok(())
     }
-
 }

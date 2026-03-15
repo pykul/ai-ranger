@@ -21,8 +21,10 @@ impl FileSink {
 
     async fn ensure_open(
         &self,
-    ) -> Result<tokio::sync::MutexGuard<'_, Option<tokio::fs::File>>, Box<dyn std::error::Error + Send + Sync>>
-    {
+    ) -> Result<
+        tokio::sync::MutexGuard<'_, Option<tokio::fs::File>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let mut guard = self.file.lock().await;
         if guard.is_none() {
             if let Some(parent) = self.path.parent() {
@@ -41,7 +43,10 @@ impl FileSink {
 
 #[async_trait]
 impl EventSink for FileSink {
-    async fn send(&self, event: &AiConnectionEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn send(
+        &self,
+        event: &AiConnectionEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut json = serde_json::to_string(event)?;
         json.push('\n');
         let mut guard = self.ensure_open().await?;
@@ -58,5 +63,4 @@ impl EventSink for FileSink {
         }
         Ok(())
     }
-
 }

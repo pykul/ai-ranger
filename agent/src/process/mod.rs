@@ -86,9 +86,8 @@ fn resolve_pid_impl(src_port: u16) -> Option<u32> {
     }
 
     let table = unsafe { &*(buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID) };
-    let rows = unsafe {
-        std::slice::from_raw_parts(table.table.as_ptr(), table.dwNumEntries as usize)
-    };
+    let rows =
+        unsafe { std::slice::from_raw_parts(table.table.as_ptr(), table.dwNumEntries as usize) };
 
     for row in rows {
         if row.dwLocalPort == target_port {
@@ -112,9 +111,16 @@ fn query_full_image_path(pid: u32) -> Option<String> {
     let mut buf = [0u16; 260]; // MAX_PATH
     let mut len = buf.len() as u32;
     let ok = unsafe {
-        QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len)
+        QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut len,
+        )
     };
-    unsafe { let _ = CloseHandle(handle); }
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
 
     if ok.is_err() {
         return None;
@@ -256,9 +262,9 @@ mod macos_proc {
 
     #[repr(C)]
     pub struct InSockInfo {
-        pub insi_fport: c_int,  // foreign port
-        pub insi_lport: c_int,  // local port
-        _rest: [u8; 376],       // remaining in_sockinfo fields
+        pub insi_fport: c_int, // foreign port
+        pub insi_lport: c_int, // local port
+        _rest: [u8; 376],      // remaining in_sockinfo fields
     }
 
     extern "C" {
@@ -302,9 +308,7 @@ mod macos_proc {
             }
 
             // Get FD list for this process
-            let fd_size = unsafe {
-                proc_pidinfo(pid, PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0)
-            };
+            let fd_size = unsafe { proc_pidinfo(pid, PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
             if fd_size <= 0 {
                 continue;
             }

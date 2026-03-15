@@ -458,3 +458,19 @@ IOCTLs that netsh activates internally. The provider cannot be started programma
 without shelling out to netsh. This creates a system-wide session conflict and other
 operational problems. ETW DNS-Client solves the actual problem (hostname visibility
 across all protocols) more cleanly.
+
+---
+
+## Considered but Deferred
+
+### eBPF for Linux packet capture
+
+eBPF was considered as a replacement for AF_PACKET raw sockets on Linux. Advantages:
+kernel-space filtering without full packet copies to userspace, potential to reduce
+privilege requirements via CAP_BPF rather than full root, better performance at high
+packet rates. Rejected for now because: AF_PACKET already works correctly and performs
+well for this workload, eBPF would add a third capture backend (alongside classic BPF
+for macOS and SIO_RCVALL for Windows) increasing maintenance surface, and the kernel
+version requirement (4.18+ minimum, 5.x+ for portable binaries via CO-RE) would exclude
+some deployment targets. Revisit if Linux performance or privilege requirements become
+a real pain point in production.

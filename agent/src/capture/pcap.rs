@@ -1,7 +1,7 @@
 /// Data extracted from a captured packet.
 pub struct PacketInfo {
     /// Hostname extracted via SNI or DNS. Empty if neither produced a hostname
-    /// (e.g. ECH-encrypted ClientHello) — IP range fallback may still match.
+    /// (e.g. ECH-encrypted ClientHello) - IP range fallback may still match.
     pub hostname: String,
     pub src_ip: String,
     pub dst_ip: String,
@@ -36,7 +36,7 @@ fn parse_ipv4_packet(ip: &[u8]) -> Option<PacketInfo> {
 /// (e.g. ECH hid the hostname), returns a PacketInfo with an empty hostname so
 /// the IP range fallback in main.rs can attempt classification.
 ///
-/// Non-TLS packets (SYN, ACK, data after handshake) return None — they are not
+/// Non-TLS packets (SYN, ACK, data after handshake) return None - they are not
 /// connection-initiating events and should not generate duplicate detections.
 fn parse_tcp_sni(tcp: &[u8], src_ip: String, dst_ip: String) -> Option<PacketInfo> {
     if tcp.len() < 20 {
@@ -140,7 +140,7 @@ fn parse_ipv6_packet(ip6: &[u8]) -> Option<PacketInfo> {
                 let transport = ip6.get(offset..)?;
                 return parse_udp_dns(transport, src_ip, dst_ip);
             }
-            // Known extension header types — walk past them.
+            // Known extension header types - walk past them.
             // Each has next-header in byte 0 and length in byte 1 (in 8-byte units, excluding first 8).
             0 | 43 | 60 => {
                 // 0=Hop-by-Hop, 43=Routing, 60=Destination Options
@@ -155,7 +155,7 @@ fn parse_ipv6_packet(ip6: &[u8]) -> Option<PacketInfo> {
                 }
             }
             44 => {
-                // Fragment header — fixed 8 bytes
+                // Fragment header - fixed 8 bytes
                 if offset + 8 > ip6.len() {
                     return None;
                 }
@@ -163,7 +163,7 @@ fn parse_ipv6_packet(ip6: &[u8]) -> Option<PacketInfo> {
                 offset += 8;
             }
             other => {
-                // Unknown extension header type — cannot walk past safely.
+                // Unknown extension header type - cannot walk past safely.
                 eprintln!(
                     "[ai-ranger] IPv6: unknown next-header type {} at offset {}, skipping packet",
                     other, offset
@@ -259,7 +259,7 @@ mod platform {
             let sock = socket(AF_PACKET, SOCK_RAW, proto);
             if sock < 0 {
                 return Err(format!(
-                    "socket(AF_PACKET) failed: {} — run with sudo",
+                    "socket(AF_PACKET) failed: {} - run with sudo",
                     *libc::__errno_location()
                 )
                 .into());
@@ -345,7 +345,7 @@ mod platform {
 
     // MACOS-UNVERIFIED: BPF filter for IPv4+IPv6 dual-stack.
     // Accepts IPv4 (0x0800) and IPv6 (0x86DD) frames. Port filtering in userspace.
-    // Same logic as Linux filter — see comments there.
+    // Same logic as Linux filter - see comments there.
     const FILTER: [BpfInsn; 5] = [
         BpfInsn {
             code: 0x28,
@@ -446,7 +446,7 @@ mod platform {
     ///   [4..8]   tv_usec  (int32_t)
     ///   [8..12]  bh_caplen  (u32)
     ///   [12..16] bh_datalen (u32)
-    ///   [16..18] bh_hdrlen  (u16) — actual header size (≥18, word-aligned)
+    ///   [16..18] bh_hdrlen  (u16) - actual header size (≥18, word-aligned)
     fn drain_bpf_buf<F: FnMut(PacketInfo)>(mut buf: &[u8], on_packet: &mut F) {
         while buf.len() >= 18 {
             let caplen = u32::from_ne_bytes([buf[8], buf[9], buf[10], buf[11]]) as usize;
@@ -483,12 +483,12 @@ mod platform {
                 return Ok(fd);
             }
         }
-        Err("could not open any /dev/bpf* device — run with sudo".into())
+        Err("could not open any /dev/bpf* device - run with sudo".into())
     }
 
     /// Detect the primary active non-loopback IPv4 interface via getifaddrs.
     /// Falls back to None if no suitable interface is found.
-    // MACOS-UNVERIFIED: getifaddrs FFI — see file-level comment.
+    // MACOS-UNVERIFIED: getifaddrs FFI - see file-level comment.
     fn detect_interface() -> Option<String> {
         use libc::{freeifaddrs, getifaddrs, ifaddrs, sockaddr_in, AF_INET, IFF_LOOPBACK, IFF_UP};
         use std::ptr;
@@ -532,7 +532,7 @@ mod platform {
 // ── Windows: WinSock2 raw socket + SIO_RCVALL ─────────────────────────────────
 //
 // Opens a raw IP socket (AF_INET/SOCK_RAW/IPPROTO_IP) and enables SIO_RCVALL
-// to receive all IPv4 packets on the interface. Uses only ws2_32.dll — no npcap,
+// to receive all IPv4 packets on the interface. Uses only ws2_32.dll - no npcap,
 // no driver, no installer. Requires Administrator.
 //
 // SIO_RCVALL only captures IPv4. IPv6 connections are covered by the ETW
@@ -554,7 +554,7 @@ mod platform {
         },
     };
 
-    // _WSAIOW(IOC_VENDOR, 1) — receive all IP packets on the interface
+    // _WSAIOW(IOC_VENDOR, 1) - receive all IP packets on the interface
     const SIO_RCVALL: DWORD = 0x9800_0001;
 
     pub fn capture<F: FnMut(PacketInfo)>(
@@ -569,7 +569,7 @@ mod platform {
             let sock = socket(AF_INET, SOCK_RAW, IPPROTO_IP);
             if sock == INVALID_SOCKET {
                 return Err(format!(
-                    "socket() failed: {} — run as Administrator",
+                    "socket() failed: {} - run as Administrator",
                     WSAGetLastError()
                 )
                 .into());
@@ -608,7 +608,7 @@ mod platform {
             {
                 closesocket(sock);
                 return Err(format!(
-                    "WSAIoctl(SIO_RCVALL) failed: {} — run as Administrator",
+                    "WSAIoctl(SIO_RCVALL) failed: {} - run as Administrator",
                     WSAGetLastError()
                 )
                 .into());
@@ -643,7 +643,7 @@ mod platform {
     }
 
     /// UDP connect trick: connect a UDP socket to an external address (no data sent)
-    /// and read back the local address the OS selected — that is our capture IP.
+    /// and read back the local address the OS selected - that is our capture IP.
     fn local_ipv4() -> Option<[u8; 4]> {
         let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
         sock.connect("8.8.8.8:80").ok()?;

@@ -51,7 +51,7 @@ jobs:
       # Start the agent, trigger AI provider traffic, verify JSON output.
       # Linux and Windows should work reliably with root/Administrator on
       # GitHub-hosted runners. macOS BPF access may be restricted by the
-      # runner environment — failure there does not indicate an agent bug.
+      # runner environment - failure there does not indicate an agent bug.
 
       - name: Smoke test (Linux)
         if: runner.os == 'Linux'

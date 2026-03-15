@@ -17,7 +17,7 @@ pub fn pid_and_name(src_port: u16) -> (u32, String) {
     }
 }
 
-/// Resolve a PID to a process name. Windows-only — used by the ETW DNS path
+/// Resolve a PID to a process name. Windows-only - used by the ETW DNS path
 /// which provides the PID directly (no port→PID lookup needed).
 #[cfg(windows)]
 pub fn name_by_pid(pid: u32) -> String {
@@ -206,7 +206,7 @@ fn process_path_impl(pid: u32) -> Option<String> {
 //
 // For PROC_PIDFDSOCKETINFO, we use a raw byte buffer instead of repr(C)
 // structs because the XNU socket_fdinfo struct hierarchy is deeply nested
-// and the struct sizes/offsets are critical — a wrong padding byte breaks
+// and the struct sizes/offsets are critical - a wrong padding byte breaks
 // the proc_pidinfo call entirely (it validates exact buffer size).
 //
 // Offsets computed from XNU bsd/sys/proc_info.h (see comments in code).
@@ -328,7 +328,7 @@ mod macos_proc {
                     continue;
                 }
 
-                // Use a raw byte buffer — proc_pidinfo validates exact size.
+                // Use a raw byte buffer - proc_pidinfo validates exact size.
                 let mut buf = [0u8; SOCKET_FDINFO_SIZE as usize];
                 let ret = unsafe {
                     proc_pidinfo(

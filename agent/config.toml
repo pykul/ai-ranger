@@ -30,7 +30,7 @@ type = "stdout"
 # path = "/var/log/ai-ranger/events.jsonl"
 
 # POST events to the AI Ranger backend gateway. Activates the local SQLite
-# buffer — events are stored locally and uploaded in batches every 30 seconds.
+# buffer - events are stored locally and uploaded in batches every 30 seconds.
 # Requires enrollment (ai-ranger --enroll --token=... --backend=...).
 # [[outputs]]
 # type = "http"

@@ -31,7 +31,7 @@ pub fn compute_connection_id(src_ip: &str, provider_host: &str, timestamp_ms: i6
 /// connection_id within the TTL window are dropped.
 ///
 /// Expired entries are swept inline on every `is_duplicate()` call via
-/// `HashMap::retain`. No background thread needed — the cache stays small
+/// `HashMap::retain`. No background thread needed - the cache stays small
 /// because entries expire quickly.
 pub struct DedupCache {
     seen: HashMap<String, Instant>,

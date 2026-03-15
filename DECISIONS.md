@@ -265,25 +265,25 @@ downstream consumers can also use it for their own dedup or correlation.
 fire within milliseconds of each other. The worst case is Windows ETW DNS-Client, which
 has 1-3 seconds of buffering latency. 2-second buckets handle this without the
 heavy-handed feel of 5-second collapsing. The boundary-crossing case (DNS at T=1.999s,
-SNI at T=2.001s producing different bucket IDs) is handled by the 5-second cache TTL —
+SNI at T=2.001s producing different bucket IDs) is handled by the 5-second cache TTL -
 both IDs are in the cache simultaneously and the first-seen wins.
 
 **Why 5-second cache TTL:** Independent of the bucket size. The TTL controls how long
 expired entries linger before being swept. 5 seconds is generous enough that even in
 the boundary-crossing scenario, both the "early bucket" and "late bucket" entries
 coexist in the cache. Sweep happens inline on every `is_duplicate()` call via
-`HashMap::retain` — no background thread needed.
+`HashMap::retain` - no background thread needed.
 
 **ETW DNS src_ip caveat:** ETW DNS-Client events have no source IP (the event contains
 only the queried hostname and PID). The connection_id for ETW events uses an empty
 src_ip, which means it will not collide with the SIO_RCVALL SNI event for the same
 connection (which has a real src_ip). Cross-pipeline dedup on Windows therefore relies
-on the dispatch-loop cache seeing both events within the TTL window — whichever arrives
+on the dispatch-loop cache seeing both events within the TTL window - whichever arrives
 first wins, the second is suppressed because it has the same (host, bucket) pair after
 accounting for the src_ip difference. This is acceptable: in the worst case, an ETW and
 SNI event for the same connection both pass through (the ETW one with empty src_ip, the
 SNI one with a real IP). This only happens if ETW and SNI produce different connection_ids,
-which requires them to land in different 2-second buckets — a narrow edge case.
+which requires them to land in different 2-second buckets - a narrow edge case.
 
 ### bytes_sent and bytes_received: removed
 
@@ -301,7 +301,7 @@ expensive) but the agent does not populate them.
 
 model_hint was originally marked Phase 1 with the intent to derive a coarse model
 family from the provider hostname. After implementation it became clear that no useful
-hint can be derived from a hostname or DNS query alone — "api.openai.com" does not
+hint can be derived from a hostname or DNS query alone - "api.openai.com" does not
 reveal whether the caller is using GPT-4 or GPT-3.5. The actual model name lives in
 the HTTP request body, which requires MITM mode (Phase 5) to inspect. The field
 remains in AiConnectionEvent (always None) as a Phase 5 placeholder.
@@ -309,7 +309,7 @@ remains in AiConnectionEvent (always None) as a Phase 5 placeholder.
 ### duration_ms: deferred
 
 Same reasoning as bytes_sent/bytes_received. The agent captures a single TLS
-ClientHello packet per connection — it does not track the full TCP session
+ClientHello packet per connection - it does not track the full TCP session
 lifecycle. Populating duration_ms would require connection state tracking across
 multiple packets, which is a meaningful increase in complexity. The field remains
 defined in AiConnectionEvent (always None) so the data model is forward-compatible.
@@ -437,9 +437,9 @@ exited. Three approaches were attempted and rejected:
 1. **PID→name cache** populated by the SIO_RCVALL path: does not help for IPv6-only
    connections because SIO_RCVALL never sees them, so the cache is never populated.
 2. **CreateToolhelp32Snapshot fallback**: takes a point-in-time snapshot of all processes
-   when the ETW callback fires. Still too late — curl has already exited by then.
+   when the ETW callback fires. Still too late - curl has already exited by then.
 3. **Background process list refresh thread**: continuously snapshots the process list
-   every N seconds. Rejected as over-engineering — adds a background thread, memory
+   every N seconds. Rejected as over-engineering - adds a background thread, memory
    overhead, and complexity for a marginal improvement on short-lived CLI tools.
 
 The decision: accept `"unknown"` for the process name when the process has exited before
@@ -447,7 +447,7 @@ the name can be resolved. The PID in `process_pid` is always accurate regardless
 process name resolves correctly when the process is still alive, which covers all real
 AI tools (Cursor, Claude Code, Copilot, Python scripts). Only sub-second CLI
 invocations like `curl` are affected, and those are testing scenarios, not real-world
-AI tool usage. Using `"unknown"` rather than `"pid:N"` keeps the output clean — the
+AI tool usage. Using `"unknown"` rather than `"pid:N"` keeps the output clean - the
 PID is already in its own field and does not need to be repeated in the name.
 
 ### Windows ETW NDIS-PacketCapture

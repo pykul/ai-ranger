@@ -479,7 +479,7 @@ pub struct AgentConfig {
 ```
 
 The enrollment token is passed via `--token` during the `ai-ranger enroll` command
-and consumed by the backend. It is not persisted in `AgentConfig` — after enrollment
+and consumed by the backend. It is not persisted in `AgentConfig` - after enrollment
 completes, the agent uses `agent_id` for all subsequent authentication.
 
 ---
@@ -578,7 +578,7 @@ type = "stdout"     # default, always works with zero config
 type = "http"
 url = "http://localhost:8080"   # use https:// in production
 # Authentication uses agent_id as Bearer token, set during enrollment.
-# No token field needed here — the agent authenticates with the identity
+# No token field needed here - the agent authenticates with the identity
 # established by `ai-ranger --enroll --token=... --backend=...`.
 
 [[outputs]]
@@ -635,10 +635,10 @@ If not set, the default is 100.
 ```toml
 # CONTRIBUTING: To add a provider, open a PR adding an entry below.
 # Required fields: name, display_name, hostnames
-# Optional: ip_ranges — CIDR ranges for providers with dedicated IP space.
+# Optional: ip_ranges - CIDR ranges for providers with dedicated IP space.
 #   Used as a last-resort fallback when both SNI and DNS detection fail
 #   (e.g. browser traffic with ECH+DoH). Only add ip_ranges for providers
-#   with dedicated IPs. Do NOT add ranges for CDN-backed providers — shared
+#   with dedicated IPs. Do NOT add ranges for CDN-backed providers - shared
 #   IPs cause false positives.
 # Please include a source link (docs_url) for any hostname you add.
 

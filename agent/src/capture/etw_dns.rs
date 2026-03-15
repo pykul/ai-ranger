@@ -34,7 +34,7 @@ const TRACE_NAME: &str = "ai-ranger-dns";
 /// Start the ETW DNS-Client trace. Runs in the background via ferrisetw's
 /// internal thread. Sends matched AI provider events through the provided channel.
 ///
-/// Returns a handle that must be kept alive — dropping it stops the trace.
+/// Returns a handle that must be kept alive - dropping it stops the trace.
 #[cfg(windows)]
 pub fn start(
     tx: tokio::sync::mpsc::Sender<AiConnectionEvent>,
@@ -80,7 +80,7 @@ pub fn start(
                 let proc_path = process::process_path(pid);
 
                 let timestamp_ms = chrono::Utc::now().timestamp_millis();
-                // ETW DNS events have no source IP — use empty string for the hash.
+                // ETW DNS events have no source IP - use empty string for the hash.
                 // The SNI path will have the real src_ip, so if both fire the connection_id
                 // will differ. Dedup still works because (empty, host, bucket) is consistent
                 // across ETW events for the same resolution.
@@ -110,7 +110,7 @@ pub fn start(
                     latency_ttfb_ms: None,
                 };
 
-                // Send through channel — blocking_send is safe here because ferrisetw
+                // Send through channel - blocking_send is safe here because ferrisetw
                 // callbacks run on a dedicated ETW processing thread, not a tokio thread.
                 let _ = tx.blocking_send(event);
             },

@@ -7,10 +7,10 @@
 # Hostnames are matched exactly and as subdomains (e.g. "eu.api.anthropic.com"
 # matches "api.anthropic.com"). Trailing dots are stripped before matching.
 #
-# Optional: ip_ranges — CIDR ranges for providers with dedicated IP space.
+# Optional: ip_ranges - CIDR ranges for providers with dedicated IP space.
 # Used as a fallback when SNI and DNS detection both fail (e.g. browser ECH+DoH).
 # Only add ip_ranges for providers with dedicated IPs. Do NOT add ranges for
-# CDN-backed providers (Cloudflare, CloudFront, Azure CDN) — shared IPs cause
+# CDN-backed providers (Cloudflare, CloudFront, Azure CDN) - shared IPs cause
 # false positives.
 
 [[providers]]

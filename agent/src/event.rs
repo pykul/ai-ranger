@@ -15,7 +15,7 @@ pub enum DetectionMethod {
 #[allow(dead_code)] // Mitm reserved for Phase 5
 pub enum CaptureMode {
     DnsSni,
-    Mitm, // Phase 5+ — reserved, do not use
+    Mitm, // Phase 5+ - reserved, do not use
 }
 
 fn is_false(v: &bool) -> bool {
@@ -59,7 +59,7 @@ pub struct AiConnectionEvent {
     pub detection_method: DetectionMethod,
     pub capture_mode: CaptureMode,
 
-    // Phase 5 — MITM only. Always default/None until Phase 5.
+    // Phase 5 - MITM only. Always default/None until Phase 5.
     // Omitted from JSON output when empty via skip_serializing_if.
     // default on deserialize so roundtrip through the SQLite buffer works.
     #[serde(default, skip_serializing_if = "is_false")]

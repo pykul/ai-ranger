@@ -20,9 +20,9 @@ Together, these eliminate both signals the agent relies on. CLI tools, SDKs, and
 | Provider | Infrastructure | Dedicated IPs? |
 |---|---|---|
 | Anthropic API (`api.anthropic.com`) | Own ASN (AS399358), `160.79.104.0/23` | Yes |
-| Claude.ai (web) | CloudFront + Cloudflare | No — shared CDN IPs |
-| OpenAI (`api.openai.com`, `chat.openai.com`) | Cloudflare Anycast (`172.66.x.x`, `162.159.x.x`) | No — shared with millions of sites |
-| Google Gemini | Google infrastructure | No — shared with all Google services |
+| Claude.ai (web) | CloudFront + Cloudflare | No - shared CDN IPs |
+| OpenAI (`api.openai.com`, `chat.openai.com`) | Cloudflare Anycast (`172.66.x.x`, `162.159.x.x`) | No - shared with millions of sites |
+| Google Gemini | Google infrastructure | No - shared with all Google services |
 | Cursor, Copilot | Cloudflare / Azure CDN | No |
 
 **What it can detect**: Connections to providers with dedicated IP ranges (currently only Anthropic's API).
@@ -49,7 +49,7 @@ Together, these eliminate both signals the agent relies on. CLI tools, SDKs, and
 
 The `Microsoft-Windows-DNS-Client` ETW provider (GUID `{1C95126E-7EEA-49A9-A3FE-A378B03DDB4D}`) emits events for every DNS resolution through the Windows DNS client service:
 
-- **Event ID 3008**: Query completed — contains `QueryName` (hostname), `QueryResults` (resolved IPs), and `ProcessId`
+- **Event ID 3008**: Query completed - contains `QueryName` (hostname), `QueryResults` (resolved IPs), and `ProcessId`
 - Already requires Administrator (agent already does)
 - Implemented via `ferrisetw` crate (MIT/Apache-2.0)
 
@@ -79,7 +79,7 @@ Two approaches:
 
 ### Summary for Option 2
 
-**What it can detect**: All DNS resolutions through system APIs — hostname, resolved IP, PID. Combined with connection tracking, gives full hostname-to-connection mapping regardless of ECH.
+**What it can detect**: All DNS resolutions through system APIs - hostname, resolved IP, PID. Combined with connection tracking, gives full hostname-to-connection mapping regardless of ECH.
 
 **What it cannot detect**: Applications that fully bypass system DNS with their own resolver (Chrome with built-in DoH not overridden by policy).
 
@@ -103,7 +103,7 @@ Two approaches:
 - Firefox: `policies.json` or `network.trr.uri` in `about:config`
 - System-level: Set OS DNS to `127.0.0.1` where local resolver listens
 
-**What it can detect**: Every DNS query routed through it — hostname, resolved IPs.
+**What it can detect**: Every DNS query routed through it - hostname, resolved IPs.
 
 **What it cannot detect**: Applications that hardcode their own DoH provider and ignore system/browser DNS settings.
 
@@ -113,7 +113,7 @@ Two approaches:
 
 **User-facing changes**: Requires changing DNS settings (admin-level). Invisible to users on managed machines via policy. On unmanaged machines, requires explicit consent.
 
-**Tradeoffs**: Reliable when deployed, but introduces a critical dependency — if the local resolver fails, the machine loses DNS entirely. More invasive than OS-level interception (Option 2) and provides roughly the same information. Option 2 is generally preferable because it observes without inserting itself into the resolution path.
+**Tradeoffs**: Reliable when deployed, but introduces a critical dependency - if the local resolver fails, the machine loses DNS entirely. More invasive than OS-level interception (Option 2) and provides roughly the same information. Option 2 is generally preferable because it observes without inserting itself into the resolution path.
 
 ---
 
@@ -121,18 +121,18 @@ Two approaches:
 
 **How it works**: Install a local CA certificate in the OS trust store. Run a TLS-terminating proxy for known AI provider hostnames only. Decrypt, inspect, re-encrypt.
 
-**What it can detect**: Everything — hostname, full request/response, API keys, model names, token counts, prompt content.
+**What it can detect**: Everything - hostname, full request/response, API keys, model names, token counts, prompt content.
 
 **What it cannot detect**: Traffic from applications with hard-coded certificate pinning that reject the local CA (some Electron apps, mobile apps).
 
 **Practical issues**:
 
-- Browsers accept user-installed CAs — no resistance from Chrome/Firefox/Edge
+- Browsers accept user-installed CAs - no resistance from Chrome/Firefox/Edge
 - Firefox uses its own cert store (must install CA in both OS and Firefox)
 - HPKP (HTTP Public Key Pinning) was deprecated by all browsers by 2019, replaced by Certificate Transparency
 - Some non-browser apps may pin certs (Cursor's Electron shell, some Python SDKs)
 - Performance overhead from TLS termination/re-encryption, especially for streaming responses
-- PII exposure: decrypted prompts may contain sensitive data — requires explicit user consent
+- PII exposure: decrypted prompts may contain sensitive data - requires explicit user consent
 
 **Complexity**: High. CA generation, OS trust store integration per platform, transparent proxy, HTTP/2 handling, streaming support.
 
@@ -148,7 +148,7 @@ Two approaches:
 
 Not proposed as an implementation option, but useful as a comparison baseline.
 
-**What it can detect**: Full URL of every request (hostname, path, query params), request/response headers, tab context. Perfect hostname visibility regardless of ECH/DoH — operates above the TLS layer. Chrome MV3 `webRequest` API is read-only (observation, no blocking), sufficient for detection.
+**What it can detect**: Full URL of every request (hostname, path, query params), request/response headers, tab context. Perfect hostname visibility regardless of ECH/DoH - operates above the TLS layer. Chrome MV3 `webRequest` API is read-only (observation, no blocking), sufficient for detection.
 
 **What it cannot detect**: Non-browser traffic (CLI tools, SDKs, desktop apps).
 
@@ -160,7 +160,7 @@ Not proposed as an implementation option, but useful as a comparison baseline.
 
 ### Windows Filtering Platform (WFP)
 
-Kernel-level network filtering API. Provides source/dest IP+port, protocol, and **process path** for every connection at the kernel level. More reliable process attribution than `GetExtendedTcpTable` (which is a point-in-time snapshot). However, WFP gives connection metadata only — no hostnames. Useful combined with ETW DNS events: ETW gives hostname-to-IP, WFP gives connection-to-process.
+Kernel-level network filtering API. Provides source/dest IP+port, protocol, and **process path** for every connection at the kernel level. More reliable process attribution than `GetExtendedTcpTable` (which is a point-in-time snapshot). However, WFP gives connection metadata only - no hostnames. Useful combined with ETW DNS events: ETW gives hostname-to-IP, WFP gives connection-to-process.
 
 ### Network Namespace Tricks (Linux)
 
@@ -183,6 +183,6 @@ Run applications in a network namespace with a controlled gateway. Requires cont
 ## Legal/Ethical Considerations
 
 - **Options 1, 2**: Passive observation of metadata already visible to the OS. Same legal posture as the current SNI/DNS approach. No content inspection.
-- **Option 3**: Interposes on DNS resolution but does not inspect content. Moderate — changing system DNS without user knowledge could be viewed unfavorably.
+- **Option 3**: Interposes on DNS resolution but does not inspect content. Moderate - changing system DNS without user knowledge could be viewed unfavorably.
 - **Option 4**: Decrypts encrypted traffic. Requires explicit organizational policy and user notice in most jurisdictions. Some regulations (GDPR, ECPA) impose specific requirements on TLS interception.
 - **Option 5**: Observes browser activity with user-installed extension. Standard browser permission model applies.

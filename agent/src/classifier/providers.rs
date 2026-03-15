@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 ///
 /// 1. Fetch from `providers_url` in config at startup (if configured and reachable).
 ///    This allows centralized fleet-wide provider list updates without redeploying agents.
-///    Requires async runtime — wired in main.rs when tokio is available.
+///    Requires async runtime - wired in main.rs when tokio is available.
 ///
 /// 2. Fall back to a local file in the OS config directory:
 ///    - Linux:   ~/.config/ai-ranger/providers.toml
@@ -37,7 +37,7 @@ pub struct ProviderEntry {
     pub hostnames: Vec<String>,
     /// CIDR ranges for providers with dedicated IP space. Used as a fallback
     /// when SNI and DNS detection both fail (e.g. browser ECH+DoH).
-    /// Only populated for providers with dedicated IPs — never for CDN-backed providers.
+    /// Only populated for providers with dedicated IPs - never for CDN-backed providers.
     #[serde(default)]
     pub ip_ranges: Vec<String>,
 }
@@ -73,8 +73,8 @@ impl ProviderRegistry {
 
 /// Initialize the provider registry with the full 3-tier priority chain.
 ///
-/// 1. `fetched_content` — TOML string fetched from `providers_url` by the caller.
-/// 2. `local_config_path` — local file in the OS config directory.
+/// 1. `fetched_content` - TOML string fetched from `providers_url` by the caller.
+/// 2. `local_config_path` - local file in the OS config directory.
 /// 3. Compile-time bundled copy.
 ///
 /// Call once at startup. Subsequent calls are no-ops (OnceLock).
@@ -130,7 +130,7 @@ pub fn init_with_fetched(
 pub fn classify(hostname: &str) -> Option<&'static str> {
     let registry = REGISTRY
         .get()
-        .expect("providers not initialized — call init() first");
+        .expect("providers not initialized - call init() first");
     let hostname = hostname.trim_end_matches('.');
     for parsed in &registry.providers {
         for known in &parsed.entry.hostnames {
@@ -156,7 +156,7 @@ pub fn classify(hostname: &str) -> Option<&'static str> {
 pub fn classify_ip(dst_ip: &str) -> Option<(&'static str, &'static str)> {
     let registry = REGISTRY
         .get()
-        .expect("providers not initialized — call init() first");
+        .expect("providers not initialized - call init() first");
     let ip: IpAddr = dst_ip.parse().ok()?;
     for parsed in &registry.providers {
         if parsed.networks.is_empty() {
@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn ip_range_matches_anthropic() {
         ensure_init();
-        // 160.79.104.0/23 covers 160.79.104.0 — 160.79.105.255
+        // 160.79.104.0/23 covers 160.79.104.0 - 160.79.105.255
         let result = classify_ip("160.79.104.1");
         assert_eq!(result, Some(("anthropic", "api.anthropic.com")));
 
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn ip_range_matches_anthropic_ipv6() {
         ensure_init();
-        // 2607:6bc0::/48 covers 2607:6bc0:0000::—2607:6bc0:00ff:ffff:...
+        // 2607:6bc0::/48 covers 2607:6bc0:0000::-2607:6bc0:00ff:ffff:...
         let result = classify_ip("2607:6bc0::10");
         assert_eq!(result, Some(("anthropic", "api.anthropic.com")));
 
@@ -314,7 +314,7 @@ mod tests {
         assert_eq!(classify_ip("160.79.106.0"), None);
         // Completely unrelated
         assert_eq!(classify_ip("8.8.8.8"), None);
-        assert_eq!(classify_ip("172.66.0.243"), None); // Cloudflare — no ip_ranges
+        assert_eq!(classify_ip("172.66.0.243"), None); // Cloudflare - no ip_ranges
                                                        // IPv6 outside Anthropic's range
         assert_eq!(classify_ip("2607:6bc1::1"), None);
     }

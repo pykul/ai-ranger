@@ -170,7 +170,7 @@ async fn main() {
 
     // Windows: start ETW DNS-Client monitoring for IPv6 DNS resolution events.
     // This runs in parallel with the SIO_RCVALL IPv4 capture below.
-    // The ETW trace handle must be kept alive — dropping it stops the trace.
+    // The ETW trace handle must be kept alive - dropping it stops the trace.
     #[cfg(windows)]
     let _etw_trace = {
         let tx_etw = tx.clone();
@@ -193,7 +193,7 @@ async fn main() {
         capture::pcap::capture(|packet| {
             // Detection priority: SNI → DNS → IP range fallback.
             let (provider, provider_host, detection_method) = if !packet.hostname.is_empty() {
-                // SNI or DNS produced a hostname — try to classify it.
+                // SNI or DNS produced a hostname - try to classify it.
                 if let Some(provider) = classifier::classify(&packet.hostname) {
                     let dm = match packet.detection_method {
                         "dns" => DetectionMethod::Dns,
@@ -204,7 +204,7 @@ async fn main() {
                     return; // hostname present but not a known provider
                 }
             } else {
-                // No hostname (ECH hid SNI, no DNS match) — try IP range fallback.
+                // No hostname (ECH hid SNI, no DNS match) - try IP range fallback.
                 if let Some((provider, synth_host)) = classifier::classify_ip(&packet.dst_ip) {
                     (provider, synth_host.to_string(), DetectionMethod::IpRange)
                 } else {
@@ -242,7 +242,7 @@ async fn main() {
                 latency_ttfb_ms: None,
             };
 
-            // Send event through channel — non-blocking, no Handle::block_on needed.
+            // Send event through channel - non-blocking, no Handle::block_on needed.
             if let Err(e) = tx.blocking_send(event) {
                 eprintln!("[ai-ranger] Channel send error: {e}");
             }
@@ -251,7 +251,7 @@ async fn main() {
     })
     .await;
 
-    // Capture ended — drop sender to close channel, wait for dispatch to finish.
+    // Capture ended - drop sender to close channel, wait for dispatch to finish.
     drop(capture_result); // ensure tx is dropped via the closure
     let _ = dispatch_task.await;
 
@@ -345,7 +345,7 @@ async fn drain_once(
     }
     sink.flush().await?;
 
-    // All sent successfully — delete from buffer
+    // All sent successfully - delete from buffer
     buf.delete_batch(&ids)?;
     Ok(batch.len())
 }

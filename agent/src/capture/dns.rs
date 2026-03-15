@@ -1,7 +1,7 @@
 /// Parse a DNS response and extract queried hostnames that received A/AAAA/CNAME answers.
 ///
 /// DNS responses are sent in plaintext over UDP port 53. Parsing them supplements
-/// SNI extraction — useful when ECH (Encrypted Client Hello) hides the real SNI.
+/// SNI extraction - useful when ECH (Encrypted Client Hello) hides the real SNI.
 ///
 /// Returns `None` if the packet is not a valid DNS response or contains no answers.
 pub fn extract_dns_hostname(data: &[u8]) -> Option<String> {
@@ -65,7 +65,7 @@ pub fn extract_dns_hostname(data: &[u8]) -> Option<String> {
         }
 
         if rtype == 1 || rtype == 28 || rtype == 5 {
-            // Valid answer record — return the queried hostname
+            // Valid answer record - return the queried hostname
             return Some(hostname);
         }
         pos += rdlength;

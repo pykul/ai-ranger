@@ -24,13 +24,13 @@ ipnet       = "2"
 rusqlite    = { version = "0.35", features = ["bundled"] }
 clap        = { version = "4", features = ["derive"] }
 
-# Platform-specific capture backends — no external C library installation required.
+# Platform-specific capture backends - no external C library installation required.
 # All crates below bind only to OS-built-in APIs (ws2_32.dll, kernel32, libc).
 
 [target.'cfg(windows)'.dependencies]
-# WinSock2 raw socket + SIO_RCVALL — built into every Windows install, no driver needed.
+# WinSock2 raw socket + SIO_RCVALL - built into every Windows install, no driver needed.
 winapi = { version = "0.3", features = ["winsock2", "ws2def", "ws2ipdef", "minwindef"] }
-# Process resolution via GetExtendedTcpTable + QueryFullProcessImageNameW — no shell needed.
+# Process resolution via GetExtendedTcpTable + QueryFullProcessImageNameW - no shell needed.
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_System_Threading",
@@ -41,5 +41,5 @@ windows = { version = "0.62", features = [
 ferrisetw = "1.2"
 
 [target.'cfg(unix)'.dependencies]
-# AF_PACKET (Linux) and BPF /dev/bpf* (macOS) — both kernel built-ins, no libpcap.
+# AF_PACKET (Linux) and BPF /dev/bpf* (macOS) - both kernel built-ins, no libpcap.
 libc = "0.2"

@@ -158,7 +158,7 @@ the event uses IP range detection instead:
 {"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","timestamp_ms":1773568330095,"provider":"anthropic","provider_host":"api.anthropic.com","process_name":"curl.exe","process_pid":35588,"src_ip":"192.168.1.232","detection_method":"IP_RANGE","capture_mode":"DNS_SNI"}
 ```
 
-Fields like `agent_id` are populated after enrollment — in standalone mode they are empty.
+Fields like `agent_id` are populated after enrollment - in standalone mode they are empty.
 
 No account. No config. No data sent anywhere.
 
@@ -231,7 +231,7 @@ always show up correctly.
 
 **A note on browser detection.** Modern browsers encrypt the destination hostname
 using Encrypted Client Hello (ECH), which prevents the agent from reading it via SNI.
-For providers with dedicated IP ranges — currently the Anthropic API — the agent falls
+For providers with dedicated IP ranges - currently the Anthropic API - the agent falls
 back to matching the connection's destination IP against known CIDR ranges. These
 connections appear with `detection_method: "IP_RANGE"` in the output.
 

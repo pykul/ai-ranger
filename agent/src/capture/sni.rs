@@ -1,7 +1,7 @@
 /// Parse a raw TCP payload and extract the SNI hostname from a TLS ClientHello.
 ///
 /// The TLS ClientHello is sent in plaintext before encryption begins. Extracting
-/// the SNI requires zero cryptography — it is pure byte parsing of a known structure.
+/// the SNI requires zero cryptography - it is pure byte parsing of a known structure.
 ///
 /// Returns `None` if the payload is not a TLS ClientHello or contains no SNI extension.
 pub fn extract_sni(data: &[u8]) -> Option<String> {

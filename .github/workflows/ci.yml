@@ -59,11 +59,11 @@ jobs:
           echo "Running as: $(whoami)"
           BINARY="$(pwd)/target/release/ai-ranger"
           ls -la "$BINARY"
-          sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
+          /usr/bin/sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
           sleep 3
           curl -s https://api.openai.com > /dev/null || true
           sleep 2
-          sudo pkill ai-ranger || true
+          /usr/bin/sudo pkill ai-ranger || true
           echo "--- agent log ---"
           cat /tmp/ai-ranger-test.log
           grep -q '"provider"' /tmp/ai-ranger-test.log
@@ -79,11 +79,11 @@ jobs:
           echo "Running as: $(whoami)"
           BINARY="$(pwd)/target/release/ai-ranger"
           ls -la "$BINARY"
-          sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
+          /usr/bin/sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
           sleep 5
           curl -s https://api.openai.com > /dev/null || true
           sleep 2
-          sudo pkill ai-ranger || true
+          /usr/bin/sudo pkill ai-ranger || true
           echo "--- agent log ---"
           cat /tmp/ai-ranger-test.log
           grep -q '"provider"' /tmp/ai-ranger-test.log

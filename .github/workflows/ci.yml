@@ -56,7 +56,7 @@ jobs:
       - name: Smoke test (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo ./target/release/ai-ranger > /tmp/ai-ranger-test.log 2>&1 &
+          sudo $PWD/target/release/ai-ranger > /tmp/ai-ranger-test.log 2>&1 &
           sleep 3
           curl -s https://api.openai.com > /dev/null || true
           sleep 2
@@ -73,7 +73,7 @@ jobs:
         # limitation (macOS runners may restrict /dev/bpf* access).
         continue-on-error: true
         run: |
-          sudo ./target/release/ai-ranger > /tmp/ai-ranger-test.log 2>&1 &
+          sudo $PWD/target/release/ai-ranger > /tmp/ai-ranger-test.log 2>&1 &
           sleep 5
           curl -s https://api.openai.com > /dev/null || true
           sleep 2

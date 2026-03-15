@@ -325,6 +325,7 @@ mod platform {
     const BIOCIMMEDIATE: libc::c_ulong = 0x8004_4270; // _IOW('B', 112, u_int)
     const BIOCSETF: libc::c_ulong = 0x8010_4267; // _IOW('B', 103, bpf_program)
     const BIOCGBLEN: libc::c_ulong = 0x4004_4266; // _IOR('B', 102, u_int)
+    const BIOCSSEESENT: libc::c_ulong = 0x8004_4277; // _IOW('B', 119, u_int)
 
     #[repr(C)]
     struct BpfInsn {
@@ -407,6 +408,9 @@ mod platform {
         // Immediate mode: deliver packets as soon as they arrive
         let one: u32 = 1;
         ioctl(fd, BIOCIMMEDIATE, &one);
+
+        // See outgoing packets (required to capture TLS ClientHello from this host)
+        ioctl(fd, BIOCSSEESENT, &one);
 
         // Install BPF filter
         let prog = BpfProgram {

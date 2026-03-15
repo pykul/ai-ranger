@@ -1,0 +1,120 @@
+# AI Ranger - Community Provider Registry
+#
+# CONTRIBUTING: To add a provider, open a PR adding an entry below.
+# Required fields: name, display_name, hostnames
+# Please include a source link (docs_url) for any hostname you add.
+#
+# Hostnames are matched exactly and as subdomains (e.g. "eu.api.anthropic.com"
+# matches "api.anthropic.com"). Trailing dots are stripped before matching.
+#
+# Optional: ip_ranges — CIDR ranges for providers with dedicated IP space.
+# Used as a fallback when SNI and DNS detection both fail (e.g. browser ECH+DoH).
+# Only add ip_ranges for providers with dedicated IPs. Do NOT add ranges for
+# CDN-backed providers (Cloudflare, CloudFront, Azure CDN) — shared IPs cause
+# false positives.
+
+[[providers]]
+name = "anthropic"
+display_name = "Anthropic / Claude"
+hostnames = ["api.anthropic.com", "claude.ai"]
+ip_ranges = ["160.79.104.0/23", "2607:6bc0::/48"]
+docs_url = "https://docs.anthropic.com"
+
+[[providers]]
+name = "openai"
+display_name = "OpenAI"
+hostnames = ["api.openai.com", "chat.openai.com", "chatgpt.com"]
+docs_url = "https://platform.openai.com/docs"
+
+[[providers]]
+name = "cursor"
+display_name = "Cursor"
+hostnames = ["api2.cursor.sh", "repo.cursor.sh"]
+
+[[providers]]
+name = "github_copilot"
+display_name = "GitHub Copilot"
+hostnames = ["copilot-proxy.githubusercontent.com", "githubcopilot.com"]
+
+[[providers]]
+name = "google_gemini"
+display_name = "Google Gemini"
+hostnames = ["generativelanguage.googleapis.com", "aistudio.google.com"]
+docs_url = "https://ai.google.dev/docs"
+
+[[providers]]
+name = "mistral"
+display_name = "Mistral"
+hostnames = ["api.mistral.ai"]
+docs_url = "https://docs.mistral.ai"
+
+[[providers]]
+name = "cohere"
+display_name = "Cohere"
+hostnames = ["api.cohere.ai", "api.cohere.com"]
+docs_url = "https://docs.cohere.com"
+
+[[providers]]
+name = "huggingface"
+display_name = "Hugging Face"
+hostnames = ["api-inference.huggingface.co", "huggingface.co"]
+docs_url = "https://huggingface.co/docs"
+
+[[providers]]
+name = "replicate"
+display_name = "Replicate"
+hostnames = ["api.replicate.com"]
+docs_url = "https://replicate.com/docs"
+
+[[providers]]
+name = "together"
+display_name = "Together AI"
+hostnames = ["api.together.xyz"]
+docs_url = "https://docs.together.ai"
+
+[[providers]]
+name = "perplexity"
+display_name = "Perplexity"
+hostnames = ["api.perplexity.ai", "www.perplexity.ai"]
+docs_url = "https://docs.perplexity.ai"
+
+[[providers]]
+name = "deepseek"
+display_name = "DeepSeek"
+hostnames = ["api.deepseek.com", "chat.deepseek.com"]
+
+[[providers]]
+name = "xai"
+display_name = "xAI / Grok"
+hostnames = ["api.x.ai"]
+
+[[providers]]
+name = "ai21"
+display_name = "AI21 Labs"
+hostnames = ["api.ai21.com"]
+docs_url = "https://docs.ai21.com"
+
+[[providers]]
+name = "amazon_bedrock"
+display_name = "Amazon Bedrock"
+hostnames = ["bedrock-runtime.us-east-1.amazonaws.com", "bedrock-runtime.us-west-2.amazonaws.com", "bedrock-runtime.eu-west-1.amazonaws.com", "bedrock.us-east-1.amazonaws.com", "bedrock.us-west-2.amazonaws.com"]
+docs_url = "https://docs.aws.amazon.com/bedrock"
+
+[[providers]]
+name = "azure_openai"
+display_name = "Azure OpenAI"
+hostnames = ["openai.azure.com"]
+docs_url = "https://learn.microsoft.com/en-us/azure/ai-services/openai"
+
+[[providers]]
+name = "stability"
+display_name = "Stability AI"
+hostnames = ["api.stability.ai"]
+docs_url = "https://platform.stability.ai/docs"
+
+[[providers]]
+name = "ollama"
+display_name = "Ollama (Local)"
+hostnames = ["localhost"]
+ports = [11434]
+tls = false

@@ -8,9 +8,21 @@ name = "ai-ranger"
 path = "src/main.rs"
 
 [dependencies]
-serde      = { version = "1", features = ["derive"] }
-serde_json = "1"
-chrono     = "0.4"
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+chrono      = "0.4"
+toml        = "0.8"
+async-trait = "0.1"
+tokio       = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "fs", "sync"] }
+reqwest     = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+futures     = "0.3"
+uuid        = { version = "1", features = ["v4"] }
+dirs        = "6"
+hostname    = "0.4"
+whoami      = "1"
+ipnet       = "2"
+rusqlite    = { version = "0.35", features = ["bundled"] }
+clap        = { version = "4", features = ["derive"] }
 
 # Platform-specific capture backends — no external C library installation required.
 # All crates below bind only to OS-built-in APIs (ws2_32.dll, kernel32, libc).
@@ -18,6 +30,15 @@ chrono     = "0.4"
 [target.'cfg(windows)'.dependencies]
 # WinSock2 raw socket + SIO_RCVALL — built into every Windows install, no driver needed.
 winapi = { version = "0.3", features = ["winsock2", "ws2def", "ws2ipdef", "minwindef"] }
+# Process resolution via GetExtendedTcpTable + QueryFullProcessImageNameW — no shell needed.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+] }
+# ETW DNS-Client provider for DNS resolution monitoring (IPv6 coverage on Windows).
+ferrisetw = "1.2"
 
 [target.'cfg(unix)'.dependencies]
 # AF_PACKET (Linux) and BPF /dev/bpf* (macOS) — both kernel built-ins, no libpcap.

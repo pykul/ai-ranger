@@ -1,2 +1,2 @@
 pub mod providers;
-pub use providers::classify;
+pub use providers::{classify, classify_ip};

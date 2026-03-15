@@ -1,49 +1,197 @@
-/// Data extracted from a captured packet that matched an SNI hostname.
+/// Data extracted from a captured packet.
 pub struct PacketInfo {
-    pub sni_hostname: String,
+    /// Hostname extracted via SNI or DNS. Empty if neither produced a hostname
+    /// (e.g. ECH-encrypted ClientHello) — IP range fallback may still match.
+    pub hostname: String,
     pub src_ip: String,
+    pub dst_ip: String,
     pub src_port: u16,
+    /// "sni" if extracted from TLS ClientHello, "dns" if from DNS response,
+    /// empty string if no hostname was extracted (IP-only packet).
+    pub detection_method: &'static str,
 }
 
-/// Parse an IPv4/TCP packet starting at the IP header and extract SNI.
+/// Parse an IPv4 packet and attempt to extract a hostname via SNI or DNS.
 /// Shared by all platform capture backends.
-fn parse_ipv4_tcp(ip: &[u8]) -> Option<PacketInfo> {
-    if ip.len() < 20 || ip[9] != 6 {
-        return None; // TCP only
+fn parse_ipv4_packet(ip: &[u8]) -> Option<PacketInfo> {
+    if ip.len() < 20 {
+        return None;
     }
+    let proto = ip[9];
     let ihl = ((ip[0] & 0x0f) as usize) * 4;
     let src_ip = format!("{}.{}.{}.{}", ip[12], ip[13], ip[14], ip[15]);
-    let tcp = ip.get(ihl..)?;
+    let dst_ip = format!("{}.{}.{}.{}", ip[16], ip[17], ip[18], ip[19]);
+    let transport = ip.get(ihl..)?;
+
+    match proto {
+        6 => parse_tcp_sni(transport, src_ip, dst_ip),
+        17 => parse_udp_dns(transport, src_ip, dst_ip),
+        _ => None,
+    }
+}
+
+/// Extract SNI from a TCP segment destined for port 443.
+///
+/// If the payload is a TLS record (starts with 0x16) but SNI extraction fails
+/// (e.g. ECH hid the hostname), returns a PacketInfo with an empty hostname so
+/// the IP range fallback in main.rs can attempt classification.
+///
+/// Non-TLS packets (SYN, ACK, data after handshake) return None — they are not
+/// connection-initiating events and should not generate duplicate detections.
+fn parse_tcp_sni(tcp: &[u8], src_ip: String, dst_ip: String) -> Option<PacketInfo> {
     if tcp.len() < 20 {
+        return None;
+    }
+    let dst_port = u16::from_be_bytes([tcp[2], tcp[3]]);
+    if dst_port != 443 {
         return None;
     }
     let src_port = u16::from_be_bytes([tcp[0], tcp[1]]);
     let doff = ((tcp[12] >> 4) as usize) * 4;
     let payload = tcp.get(doff..)?;
-    let sni = super::sni::extract_sni(payload)?;
+
+    // Only process TLS handshake records (content type 0x16).
+    // Non-TLS or empty payloads (SYN, ACK, data) are skipped entirely.
+    if payload.is_empty() || payload[0] != 0x16 {
+        return None;
+    }
+
+    match super::sni::extract_sni(payload) {
+        Some(hostname) => Some(PacketInfo {
+            hostname,
+            src_ip,
+            dst_ip,
+            src_port,
+            detection_method: "sni",
+        }),
+        // TLS handshake record present but no SNI found (ECH or malformed).
+        // Return empty hostname for IP range fallback.
+        None => Some(PacketInfo {
+            hostname: String::new(),
+            src_ip,
+            dst_ip,
+            src_port,
+            detection_method: "",
+        }),
+    }
+}
+
+/// Extract queried hostname from a DNS response (source port 53).
+fn parse_udp_dns(udp: &[u8], src_ip: String, dst_ip: String) -> Option<PacketInfo> {
+    // UDP header: src_port(2) + dst_port(2) + length(2) + checksum(2) = 8 bytes
+    if udp.len() < 8 {
+        return None;
+    }
+    let src_port = u16::from_be_bytes([udp[0], udp[1]]);
+    if src_port != 53 {
+        return None;
+    }
+    let dst_port = u16::from_be_bytes([udp[2], udp[3]]);
+    let payload = udp.get(8..)?;
+    let hostname = super::dns::extract_dns_hostname(payload)?;
     Some(PacketInfo {
-        sni_hostname: sni,
+        hostname,
+        // For DNS events, report the client IP and client port (dst of the response).
+        // src_port is set to the client's ephemeral port so process resolution can try,
+        // though it usually resolves to the system DNS resolver, not the application.
         src_ip,
-        src_port,
+        dst_ip,
+        src_port: dst_port,
+        detection_method: "dns",
     })
 }
 
-/// Parse an Ethernet frame, validate IPv4 ethertype, and extract SNI.
+/// Parse an IPv6 packet and attempt to extract a hostname via SNI or DNS.
+///
+/// IPv6 fixed header: 40 bytes.
+///   Byte 0:     version (high nibble = 6)
+///   Byte 6:     next-header (6=TCP, 17=UDP, or extension header type)
+///   Bytes 8–23: source address (16 bytes)
+///   Bytes 24–39: destination address (16 bytes)
+///   Byte 40+:   transport header or extension headers
+///
+/// Extension headers are walked until TCP or UDP is found. Unknown extension
+/// header types cause the packet to be skipped gracefully.
+fn parse_ipv6_packet(ip6: &[u8]) -> Option<PacketInfo> {
+    if ip6.len() < 40 {
+        return None;
+    }
+    if (ip6[0] >> 4) != 6 {
+        return None;
+    }
+
+    let src_ip = std::net::Ipv6Addr::from(<[u8; 16]>::try_from(&ip6[8..24]).ok()?).to_string();
+    let dst_ip = std::net::Ipv6Addr::from(<[u8; 16]>::try_from(&ip6[24..40]).ok()?).to_string();
+
+    // Walk extension header chain to find the transport protocol.
+    let mut next_header = ip6[6];
+    let mut offset: usize = 40;
+
+    loop {
+        match next_header {
+            6 => {
+                // TCP
+                let transport = ip6.get(offset..)?;
+                return parse_tcp_sni(transport, src_ip, dst_ip);
+            }
+            17 => {
+                // UDP
+                let transport = ip6.get(offset..)?;
+                return parse_udp_dns(transport, src_ip, dst_ip);
+            }
+            // Known extension header types — walk past them.
+            // Each has next-header in byte 0 and length in byte 1 (in 8-byte units, excluding first 8).
+            0 | 43 | 60 => {
+                // 0=Hop-by-Hop, 43=Routing, 60=Destination Options
+                if offset + 2 > ip6.len() {
+                    return None;
+                }
+                next_header = ip6[offset];
+                let ext_len = (ip6[offset + 1] as usize + 1) * 8;
+                offset += ext_len;
+                if offset > ip6.len() {
+                    return None;
+                }
+            }
+            44 => {
+                // Fragment header — fixed 8 bytes
+                if offset + 8 > ip6.len() {
+                    return None;
+                }
+                next_header = ip6[offset];
+                offset += 8;
+            }
+            other => {
+                // Unknown extension header type — cannot walk past safely.
+                eprintln!(
+                    "[ai-ranger] IPv6: unknown next-header type {} at offset {}, skipping packet",
+                    other, offset
+                );
+                return None;
+            }
+        }
+    }
+}
+
+/// Parse an Ethernet frame and extract hostname from IPv4 or IPv6 payload.
 /// Used by Linux (AF_PACKET) and macOS (BPF) which both deliver raw Ethernet frames.
+#[cfg(unix)]
 fn parse_eth_frame(data: &[u8]) -> Option<PacketInfo> {
     if data.len() < 14 {
         return None;
     }
-    if u16::from_be_bytes([data[12], data[13]]) != 0x0800 {
-        return None; // IPv4 only
+    let ethertype = u16::from_be_bytes([data[12], data[13]]);
+    match ethertype {
+        0x0800 => parse_ipv4_packet(&data[14..]),
+        0x86DD => parse_ipv6_packet(&data[14..]),
+        _ => None,
     }
-    parse_ipv4_tcp(&data[14..])
 }
 
 // ── Linux: AF_PACKET raw socket ───────────────────────────────────────────────
 //
 // Opens an AF_PACKET/SOCK_RAW socket (kernel built-in, no libpcap).
-// Attaches a BPF filter for "tcp dst port 443" via SO_ATTACH_FILTER.
+// Attaches a BPF filter for "tcp dst port 443 OR udp src port 53" via SO_ATTACH_FILTER.
 // Receives raw Ethernet frames directly from the kernel.
 // Requires root.
 
@@ -56,69 +204,24 @@ mod platform {
     };
     use std::mem;
 
-    // BPF bytecode equivalent to: tcp dst port 443 (on Ethernet frames)
-    //   ldh  [12]           ; ethertype
-    //   jeq  #0x0800, +0, +5  ; IPv4 → continue, else drop
-    //   ldb  [23]           ; IP protocol
-    //   jeq  #6, +0, +3    ; TCP → continue, else drop
-    //   ldh  [36]           ; TCP dst port (eth:14 + ip_min:20 + dst_port_off:2)
-    //   jeq  #443, +0, +1  ; port 443 → continue, else drop
-    //   ret  #0xffff        ; accept
-    //   ret  #0             ; reject
+    // BPF bytecode: accept IPv4 (0x0800) and IPv6 (0x86DD) Ethernet frames.
     //
-    // Note: offset 36 assumes a 20-byte IP header (no options). If IP options are
-    // present (IHL > 5), this filter may pass non-443 packets or miss 443 packets.
-    // The userspace parser handles variable IHL correctly, so this is safe — just
-    // slightly less efficient as a pre-filter.
-    const FILTER: [sock_filter; 8] = [
-        sock_filter {
-            code: 0x28,
-            jt: 0,
-            jf: 0,
-            k: 12,
-        },
-        sock_filter {
-            code: 0x15,
-            jt: 0,
-            jf: 5,
-            k: 0x0800,
-        },
-        sock_filter {
-            code: 0x30,
-            jt: 0,
-            jf: 0,
-            k: 23,
-        },
-        sock_filter {
-            code: 0x15,
-            jt: 0,
-            jf: 3,
-            k: 6,
-        },
-        sock_filter {
-            code: 0x28,
-            jt: 0,
-            jf: 0,
-            k: 36,
-        },
-        sock_filter {
-            code: 0x15,
-            jt: 0,
-            jf: 1,
-            k: 443,
-        },
-        sock_filter {
-            code: 0x06,
-            jt: 0,
-            jf: 0,
-            k: 0xffff,
-        },
-        sock_filter {
-            code: 0x06,
-            jt: 0,
-            jf: 0,
-            k: 0,
-        },
+    // Port filtering (TCP 443, UDP 53) is done in userspace because IPv4 and
+    // IPv6 have different header lengths, making a single BPF program that
+    // checks ports for both protocols complex and error-prone. The ethertype
+    // check alone eliminates most non-IP traffic at the kernel level.
+    //
+    //   0: ldh  [12]                ; ethertype
+    //   1: jeq  #0x0800, +2, +0    ; IPv4 → accept
+    //   2: jeq  #0x86DD, +1, +0    ; IPv6 → accept
+    //   3: ret  #0                  ; reject
+    //   4: ret  #0xffff             ; accept
+    const FILTER: [sock_filter; 5] = [
+        sock_filter { code: 0x28, jt: 0, jf: 0, k: 12 },       // ldh [12]
+        sock_filter { code: 0x15, jt: 2, jf: 0, k: 0x0800 },   // jeq #0x0800 → accept
+        sock_filter { code: 0x15, jt: 1, jf: 0, k: 0x86DD },   // jeq #0x86DD → accept
+        sock_filter { code: 0x06, jt: 0, jf: 0, k: 0 },        // reject
+        sock_filter { code: 0x06, jt: 0, jf: 0, k: 0xffff },   // accept
     ];
 
     pub fn capture<F: FnMut(PacketInfo)>(
@@ -173,8 +276,15 @@ mod platform {
 
 // ── macOS: BPF device ─────────────────────────────────────────────────────────
 //
+// MACOS-UNVERIFIED: This entire platform block requires compile-test on Apple
+// hardware. Specifically:
+//   - detect_interface() uses getifaddrs FFI (new in Phase 1, untested)
+//   - BPF filter updated for IPv4+IPv6 dual-stack (untested)
+//   - IPv6 packet parsing via parse_ipv6_packet (untested on macOS)
+//   - All BPF ioctl constants and struct layouts carried from Phase 0 (worked then)
+//
 // Opens /dev/bpf*, attaches to the primary network interface via BIOCSETIF,
-// and installs a BPF filter for "tcp dst port 443" via BIOCSETF.
+// and installs a BPF filter for "tcp dst port 443 OR udp src port 53" via BIOCSETF.
 // Receives raw Ethernet frames wrapped in a bpf_hdr.
 // Requires root.
 
@@ -206,56 +316,15 @@ mod platform {
         bf_insns: *const BpfInsn,
     }
 
-    // Same BPF filter as Linux: tcp dst port 443 on Ethernet frames
-    const FILTER: [BpfInsn; 8] = [
-        BpfInsn {
-            code: 0x28,
-            jt: 0,
-            jf: 0,
-            k: 12,
-        },
-        BpfInsn {
-            code: 0x15,
-            jt: 0,
-            jf: 5,
-            k: 0x0800,
-        },
-        BpfInsn {
-            code: 0x30,
-            jt: 0,
-            jf: 0,
-            k: 23,
-        },
-        BpfInsn {
-            code: 0x15,
-            jt: 0,
-            jf: 3,
-            k: 6,
-        },
-        BpfInsn {
-            code: 0x28,
-            jt: 0,
-            jf: 0,
-            k: 36,
-        },
-        BpfInsn {
-            code: 0x15,
-            jt: 0,
-            jf: 1,
-            k: 443,
-        },
-        BpfInsn {
-            code: 0x06,
-            jt: 0,
-            jf: 0,
-            k: 0xffff,
-        },
-        BpfInsn {
-            code: 0x06,
-            jt: 0,
-            jf: 0,
-            k: 0,
-        },
+    // MACOS-UNVERIFIED: BPF filter for IPv4+IPv6 dual-stack.
+    // Accepts IPv4 (0x0800) and IPv6 (0x86DD) frames. Port filtering in userspace.
+    // Same logic as Linux filter — see comments there.
+    const FILTER: [BpfInsn; 5] = [
+        BpfInsn { code: 0x28, jt: 0, jf: 0, k: 12 },       // ldh [12]
+        BpfInsn { code: 0x15, jt: 2, jf: 0, k: 0x0800 },   // jeq #0x0800 → accept
+        BpfInsn { code: 0x15, jt: 1, jf: 0, k: 0x86DD },   // jeq #0x86DD → accept
+        BpfInsn { code: 0x06, jt: 0, jf: 0, k: 0 },        // reject
+        BpfInsn { code: 0x06, jt: 0, jf: 0, k: 0xffff },   // accept
     ];
 
     pub fn capture<F: FnMut(PacketInfo)>(
@@ -269,9 +338,7 @@ mod platform {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let fd = open_bpf()?;
 
-        // TODO Phase 1: detect primary interface dynamically via getifaddrs.
-        // en0 is the primary Ethernet/Wi-Fi interface on almost all Macs.
-        let iface = "en0";
+        let iface = detect_interface().unwrap_or_else(|| "en0".to_string());
         eprintln!("[ai-ranger] Capturing on {iface} (BPF device)");
 
         // Attach to interface
@@ -364,24 +431,64 @@ mod platform {
         }
         Err("could not open any /dev/bpf* device — run with sudo".into())
     }
+
+    /// Detect the primary active non-loopback IPv4 interface via getifaddrs.
+    /// Falls back to None if no suitable interface is found.
+    // MACOS-UNVERIFIED: getifaddrs FFI — see file-level comment.
+    fn detect_interface() -> Option<String> {
+        use libc::{freeifaddrs, getifaddrs, ifaddrs, sockaddr_in, AF_INET, IFF_LOOPBACK, IFF_UP};
+        use std::ptr;
+
+        unsafe {
+            let mut addrs: *mut ifaddrs = ptr::null_mut();
+            if getifaddrs(&mut addrs) != 0 {
+                return None;
+            }
+
+            let mut current = addrs;
+            let mut result = None;
+
+            while !current.is_null() {
+                let ifa = &*current;
+                let flags = ifa.ifa_flags as i32;
+
+                // Want: up, not loopback, has an IPv4 address
+                if (flags & IFF_UP != 0)
+                    && (flags & IFF_LOOPBACK == 0)
+                    && !ifa.ifa_addr.is_null()
+                    && (*ifa.ifa_addr).sa_family as i32 == AF_INET
+                {
+                    // Check for a non-zero IPv4 address
+                    let sin = &*(ifa.ifa_addr as *const sockaddr_in);
+                    if sin.sin_addr.s_addr != 0 {
+                        let name = std::ffi::CStr::from_ptr(ifa.ifa_name);
+                        result = Some(name.to_string_lossy().into_owned());
+                        break;
+                    }
+                }
+                current = ifa.ifa_next;
+            }
+
+            freeifaddrs(addrs);
+            result
+        }
+    }
 }
 
 // ── Windows: WinSock2 raw socket + SIO_RCVALL ─────────────────────────────────
 //
 // Opens a raw IP socket (AF_INET/SOCK_RAW/IPPROTO_IP) and enables SIO_RCVALL
-// to receive all IP packets on the interface. Uses only ws2_32.dll which is
-// built into every Windows install — no npcap, no driver, no installer.
-// Receives raw IP packets (no Ethernet header; starts at IP header).
-// Requires Administrator.
+// to receive all IPv4 packets on the interface. Uses only ws2_32.dll — no npcap,
+// no driver, no installer. Requires Administrator.
 //
-// Note: SIO_RCVALL is the pragmatic standalone approach for Phase 0.
-// Phase 1 can upgrade to ETW via ferrisetw (Microsoft-Windows-NDIS-PacketCapture)
-// if per-interface or inbound/outbound separation is needed.
+// SIO_RCVALL only captures IPv4. IPv6 connections are covered by the ETW
+// DNS-Client path in capture/etw_dns.rs, which detects AI provider hostname
+// resolutions regardless of IP version.
 
 #[cfg(windows)]
 mod platform {
     use super::PacketInfo;
-    use std::{mem, net::UdpSocket};
+    use std::net::UdpSocket;
     use winapi::{
         shared::{
             minwindef::{DWORD, LPVOID},
@@ -399,85 +506,85 @@ mod platform {
     pub fn capture<F: FnMut(PacketInfo)>(
         mut on_packet: F,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        unsafe { capture_impl(&mut on_packet) }
-    }
-
-    unsafe fn capture_impl<F: FnMut(PacketInfo)>(
-        on_packet: &mut F,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut wsa: WSADATA = mem::zeroed();
-        if WSAStartup(0x0202, &mut wsa) != 0 {
-            return Err("WSAStartup failed".into());
-        }
-
-        // AF_INET is c_int (i32) in winapi::shared::ws2def, matching socket()'s af parameter.
-        let sock = socket(AF_INET, SOCK_RAW, IPPROTO_IP);
-        if sock == INVALID_SOCKET {
-            return Err(format!(
-                "socket() failed: {} — run as Administrator",
-                WSAGetLastError()
-            )
-            .into());
-        }
-
-        let local_ip = local_ipv4().ok_or("could not determine local IPv4 address")?;
-
-        let mut addr: SOCKADDR_IN = mem::zeroed();
-        // sin_family is ADDRESS_FAMILY (u16); AF_INET is c_int (i32) — cast required.
-        addr.sin_family = AF_INET as u16;
-        *addr.sin_addr.S_un.S_addr_mut() = u32::from_ne_bytes(local_ip);
-
-        if bind(
-            sock,
-            &addr as *const SOCKADDR_IN as *const SOCKADDR,
-            mem::size_of::<SOCKADDR_IN>() as i32,
-        ) != 0
-        {
-            closesocket(sock);
-            return Err(format!("bind() failed: {}", WSAGetLastError()).into());
-        }
-
-        let mut in_val: u32 = 1; // RCVALL_ON
-        let mut out_val: u32 = 0;
-        let mut bytes: DWORD = 0;
-        if WSAIoctl(
-            sock,
-            SIO_RCVALL,
-            &mut in_val as *mut u32 as LPVOID,
-            mem::size_of::<u32>() as DWORD,
-            &mut out_val as *mut u32 as LPVOID,
-            mem::size_of::<u32>() as DWORD,
-            &mut bytes,
-            std::ptr::null_mut(),
-            None,
-        ) != 0
-        {
-            closesocket(sock);
-            return Err(format!(
-                "WSAIoctl(SIO_RCVALL) failed: {} — run as Administrator",
-                WSAGetLastError()
-            )
-            .into());
-        }
-
-        eprintln!(
-            "[ai-ranger] Capturing on {}.{}.{}.{} (raw IP socket + SIO_RCVALL)",
-            local_ip[0], local_ip[1], local_ip[2], local_ip[3]
-        );
-
-        let mut buf = vec![0u8; 65536];
-        loop {
-            let n = recv(sock, buf.as_mut_ptr() as *mut i8, buf.len() as i32, 0);
-            if n <= 0 {
-                break;
+        unsafe {
+            let mut wsa: WSADATA = std::mem::zeroed();
+            if WSAStartup(0x0202, &mut wsa) != 0 {
+                return Err("WSAStartup failed".into());
             }
-            if let Some(info) = parse_ip_packet(&buf[..n as usize]) {
-                on_packet(info);
-            }
-        }
 
-        closesocket(sock);
-        WSACleanup();
+            let sock = socket(AF_INET, SOCK_RAW, IPPROTO_IP);
+            if sock == INVALID_SOCKET {
+                return Err(format!(
+                    "socket() failed: {} — run as Administrator",
+                    WSAGetLastError()
+                )
+                .into());
+            }
+
+            let local_ip = local_ipv4().ok_or("could not determine local IPv4 address")?;
+
+            let mut addr: SOCKADDR_IN = std::mem::zeroed();
+            addr.sin_family = AF_INET as u16;
+            *addr.sin_addr.S_un.S_addr_mut() = u32::from_ne_bytes(local_ip);
+
+            if bind(
+                sock,
+                &addr as *const SOCKADDR_IN as *const SOCKADDR,
+                std::mem::size_of::<SOCKADDR_IN>() as i32,
+            ) != 0
+            {
+                closesocket(sock);
+                return Err(format!("bind() failed: {}", WSAGetLastError()).into());
+            }
+
+            let mut in_val: u32 = 1; // RCVALL_ON
+            let mut out_val: u32 = 0;
+            let mut bytes: DWORD = 0;
+            if WSAIoctl(
+                sock,
+                SIO_RCVALL,
+                &mut in_val as *mut u32 as LPVOID,
+                std::mem::size_of::<u32>() as DWORD,
+                &mut out_val as *mut u32 as LPVOID,
+                std::mem::size_of::<u32>() as DWORD,
+                &mut bytes,
+                std::ptr::null_mut(),
+                None,
+            ) != 0
+            {
+                closesocket(sock);
+                return Err(format!(
+                    "WSAIoctl(SIO_RCVALL) failed: {} — run as Administrator",
+                    WSAGetLastError()
+                )
+                .into());
+            }
+
+            eprintln!(
+                "[ai-ranger] Capturing on {}.{}.{}.{} (raw IP socket + SIO_RCVALL)",
+                local_ip[0], local_ip[1], local_ip[2], local_ip[3]
+            );
+            eprintln!(
+                "[ai-ranger] Note: SIO_RCVALL captures IPv4 only. IPv6 connections are detected via ETW DNS-Client monitoring."
+            );
+
+            let mut buf = vec![0u8; 65536];
+            loop {
+                let n = recv(sock, buf.as_mut_ptr() as *mut i8, buf.len() as i32, 0);
+                if n <= 0 {
+                    break;
+                }
+                let data = &buf[..n as usize];
+                if data.len() >= 20 && (data[0] >> 4) == 4 {
+                    if let Some(info) = super::parse_ipv4_packet(data) {
+                        on_packet(info);
+                    }
+                }
+            }
+
+            closesocket(sock);
+            WSACleanup();
+        }
         Ok(())
     }
 
@@ -490,30 +597,6 @@ mod platform {
             std::net::SocketAddr::V4(a) => Some(a.ip().octets()),
             _ => None,
         }
-    }
-
-    /// SIO_RCVALL gives raw IPv4 packets with no Ethernet header.
-    /// Filters to port 443 in userspace (no kernel BPF on Windows with SIO_RCVALL).
-    fn parse_ip_packet(data: &[u8]) -> Option<PacketInfo> {
-        if data.len() < 20 {
-            return None;
-        }
-        if (data[0] >> 4) != 4 {
-            return None; // IPv4 only
-        }
-
-        // Check dst port 443 before calling shared parser (Windows has no kernel filter)
-        let ihl = ((data[0] & 0x0f) as usize) * 4;
-        let tcp = data.get(ihl..)?;
-        if tcp.len() < 4 {
-            return None;
-        }
-        let dst_port = u16::from_be_bytes([tcp[2], tcp[3]]);
-        if dst_port != 443 {
-            return None;
-        }
-
-        super::parse_ipv4_tcp(data)
     }
 }
 

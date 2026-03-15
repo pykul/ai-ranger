@@ -1,0 +1,46 @@
+# AI Ranger Agent Configuration
+#
+# This file works out of the box with no changes. The agent will capture
+# AI provider connections and print JSON events to stdout.
+#
+# Place this file next to the agent binary, or pass --config /path/to/config.toml.
+# See ARCHITECTURE.md § "Agent Configuration" for the full reference.
+
+[agent]
+# Capture mode: "dns-sni" (default) or "mitm" (Phase 5+, not yet implemented)
+mode = "dns-sni"
+
+# URL to fetch a fresh providers.toml on startup (optional).
+# If set, the agent fetches this URL on every start and uses the result as
+# the provider list. On failure, falls back to the local file in the config
+# directory, then the compile-time bundled copy.
+# providers_url = "https://raw.githubusercontent.com/pykul/ai-ranger/main/providers/providers.toml"
+
+# ── Output sinks ────────────────────────────────────────────────────────────
+#
+# Events fan out to all configured outputs simultaneously.
+# At least one output must be present. If none are configured, stdout is used.
+
+[[outputs]]
+type = "stdout"
+
+# Write JSON lines to a file. Each event is appended as one line.
+# [[outputs]]
+# type = "file"
+# path = "/var/log/ai-ranger/events.jsonl"
+
+# POST events to the AI Ranger backend gateway. Activates the local SQLite
+# buffer — events are stored locally and uploaded in batches every 30 seconds.
+# Requires enrollment (ai-ranger --enroll --token=... --backend=...).
+# [[outputs]]
+# type = "http"
+# url = "https://your-instance.com/v1/ingest"
+# token = "tok_abc123"
+
+# POST JSON arrays to any HTTP endpoint. Useful for integrating with Datadog,
+# Splunk, or custom webhooks without running the AI Ranger backend.
+# [[outputs]]
+# type = "webhook"
+# url = "https://http-intake.logs.datadoghq.com/api/v2/logs"
+# headers = { "DD-API-KEY" = "your-key", "Content-Type" = "application/json" }
+# batch_size = 100

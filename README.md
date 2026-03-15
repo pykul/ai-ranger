@@ -5,7 +5,7 @@
 Claude, Cursor, Copilot, ChatGPT, local models. All of it, in one place.
 
 AI Ranger is an open source agent that runs on your machines and tells you which AI
-providers are being called, by which tools, and how much traffic is flowing to them.
+providers are being called and by which tools.
 Visibility into AI usage across your organization, with no proxy on your network and
 nothing intercepted.
 
@@ -32,7 +32,6 @@ content of your prompts and responses stays encrypted, always.
 **What AI Ranger sees:**
 - Which AI provider was contacted (`api.anthropic.com`, `api.openai.com`, etc.)
 - Which application made the call (Cursor, Claude Code, a Python script, etc.)
-- How many bytes were sent and received
 - When it happened
 
 **What AI Ranger never sees:**
@@ -74,7 +73,6 @@ your developers are already using, without getting in the way.
 
 - **Per-user, per-tool breakdown:** see which developer is using which AI provider
   and which application they are calling it from
-- **Traffic volume:** bytes sent and received per provider, per machine, over time
 - **Fleet management:** enroll machines with a single command, manage them from a
   dashboard
 - **Self-hostable:** your data never leaves your infrastructure
@@ -150,11 +148,21 @@ curl -s https://github.com > /dev/null
 ```
 
 ```json
-{"timestamp_ms":1773506947460,"provider":"anthropic","provider_host":"api.anthropic.com","detection_method":"sni","process_name":"claude","process_pid":1867,"src_ip":"172.27.151.106"}
-{"timestamp_ms":1773506958887,"provider":"openai","provider_host":"chat.openai.com","detection_method":"sni","process_name":"curl","process_pid":4811,"src_ip":"172.27.151.106"}
+{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","timestamp_ms":1773564763684,"provider":"openai","provider_host":"api.openai.com","process_name":"curl.exe","process_pid":22276,"src_ip":"192.168.1.232","detection_method":"SNI","capture_mode":"DNS_SNI"}
 ```
 
+When the destination IP matches a known provider range but SNI is hidden (e.g. by ECH),
+the event uses IP range detection instead:
+
+```json
+{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","timestamp_ms":1773568330095,"provider":"anthropic","provider_host":"api.anthropic.com","process_name":"curl.exe","process_pid":35588,"src_ip":"192.168.1.232","detection_method":"IP_RANGE","capture_mode":"DNS_SNI"}
+```
+
+Fields like `agent_id` are populated after enrollment — in standalone mode they are empty.
+
 No account. No config. No data sent anywhere.
+
+A default `config.toml` with all available options documented ships at `agent/config.toml`.
 
 ---
 
@@ -182,8 +190,18 @@ It currently covers:
 - GitHub Copilot
 - Google Gemini
 - Mistral
+- Cohere
+- Hugging Face
+- Replicate
+- Together AI
+- Perplexity
+- DeepSeek
+- xAI / Grok
+- AI21 Labs
+- Amazon Bedrock
+- Azure OpenAI
+- Stability AI
 - Ollama (local models)
-- and more, see `providers/providers.toml`
 
 Missing a provider? [Open a PR](https://github.com/pykul/ai-ranger/blob/main/providers/CONTRIBUTING.md).
 Adding a provider is a one-minute TOML edit, no code required.
@@ -194,14 +212,28 @@ Adding a provider is a one-minute TOML edit, no code required.
 
 - **Zero call-home by default.** The agent never contacts any URL unless you explicitly
   configure a backend. Running `ai-ranger` with no config produces local stdout output only.
-- **No content inspection.** The agent reads SNI hostnames and byte counts. It never
-  reads, buffers, or transmits any part of the encrypted payload.
+- **No content inspection.** The agent reads SNI hostnames and connection metadata. It
+  never reads, buffers, or transmits any part of the encrypted payload.
 - **Local-first.** Events are buffered locally on the machine and only uploaded when
   a backend is configured and reachable. Nothing is sent to any third party.
 - **Explicit enrollment.** The backend URL and enrollment token must be explicitly
   provided during installation. They are never hardcoded or bundled.
 - **Fully auditable.** Every line of code is open source. Read it, fork it, run it
   yourself. The privacy guarantee is structural, not a policy.
+
+**A note on process names.** AI Ranger identifies which application made a connection
+by looking up the process that owns the network socket at the moment the connection is
+detected. If you run a short-lived command like `curl` from a shell, you may see the
+shell (e.g. `bash`, `zsh`, `powershell.exe`) as the process name, or `unknown` if the
+command finished before the lookup ran. The process ID is always accurate regardless.
+Real AI tools like Cursor, Claude Code, and Copilot keep their connections open and
+always show up correctly.
+
+**A note on browser detection.** Modern browsers encrypt the destination hostname
+using Encrypted Client Hello (ECH), which prevents the agent from reading it via SNI.
+For providers with dedicated IP ranges — currently the Anthropic API — the agent falls
+back to matching the connection's destination IP against known CIDR ranges. These
+connections appear with `detection_method: "IP_RANGE"` in the output.
 
 ---
 
@@ -214,7 +246,7 @@ one or more output sinks. By default the only sink is stdout. The agent is fully
 functional with no other components present.
 
 Output sinks are pluggable. The agent ships with a stdout sink, a file sink, a backend
-sink that POSTs protobuf batches to the AI Ranger backend over HTTPS, and a webhook
+sink that POSTs JSON batches to the AI Ranger backend over HTTPS (protobuf planned for Phase 2), and a webhook
 sink for custom destinations. Multiple
 sinks can be active at once, configured in `config.toml`. This is how teams with
 existing observability infrastructure connect AI Ranger to Datadog, Splunk, or any

@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            binary: ai-ranger
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            binary: ai-ranger
+            cross: true
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            binary: ai-ranger
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            binary: ai-ranger
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            binary: ai-ranger.exe
+
+    defaults:
+      run:
+        working-directory: agent
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
+
+      # aarch64-linux cross-compilation needs a cross-linker
+      - name: Install cross-compilation tools
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo '[target.aarch64-unknown-linux-gnu]' >> ../.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> ../.cargo/config.toml
+          mkdir -p ../.cargo
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Compute checksum (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release
+          sha256sum ${{ matrix.binary }} > ${{ matrix.binary }}.sha256
+
+      - name: Compute checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release
+          $hash = (Get-FileHash ${{ matrix.binary }} -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${{ matrix.binary }}" | Out-File -Encoding ascii ${{ matrix.binary }}.sha256
+
+      - name: Rename binary with target
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          if [[ "${{ matrix.binary }}" == *.exe ]]; then
+            cp ${{ matrix.binary }} ai-ranger-${{ matrix.target }}.exe
+            cp ${{ matrix.binary }}.sha256 ai-ranger-${{ matrix.target }}.exe.sha256
+          else
+            cp ${{ matrix.binary }} ai-ranger-${{ matrix.target }}
+            cp ${{ matrix.binary }}.sha256 ai-ranger-${{ matrix.target }}.sha256
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-ranger-${{ matrix.target }}
+          path: |
+            agent/target/${{ matrix.target }}/release/ai-ranger-${{ matrix.target }}*
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*

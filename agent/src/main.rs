@@ -1,24 +1,10 @@
 mod capture;
 mod classifier;
+mod event;
 mod process;
 
 use chrono::Utc;
-use serde::Serialize;
-
-#[derive(Serialize)]
-struct AiConnectionEvent {
-    agent_id: String,
-    machine_hostname: String,
-    os_username: String,
-    timestamp_ms: i64,
-    provider: String,
-    provider_host: String,
-    detection_method: &'static str,
-    process_name: String,
-    process_pid: u32,
-    src_ip: String,
-    capture_mode: &'static str,
-}
+use event::AiConnectionEvent;
 
 fn main() {
     eprintln!("[ai-ranger] Phase 0 spike — SNI-based AI provider detection");

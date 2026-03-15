@@ -57,7 +57,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           echo "Running as: $(whoami)"
-          BINARY="$(pwd)/target/release/ai-ranger"
+          BINARY="${GITHUB_WORKSPACE}/agent/target/release/ai-ranger"
           ls -la "$BINARY"
           /usr/bin/sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
           sleep 3
@@ -77,7 +77,7 @@ jobs:
         continue-on-error: true
         run: |
           echo "Running as: $(whoami)"
-          BINARY="$(pwd)/target/release/ai-ranger"
+          BINARY="${GITHUB_WORKSPACE}/agent/target/release/ai-ranger"
           ls -la "$BINARY"
           /usr/bin/sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
           sleep 5
@@ -100,7 +100,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Start-Process -FilePath ".\target\release\ai-ranger.exe" `
+          Start-Process -FilePath "$env:GITHUB_WORKSPACE\agent\target\release\ai-ranger.exe" `
             -RedirectStandardOutput "C:\ai-ranger-test.log" `
             -RedirectStandardError "C:\ai-ranger-test-err.log" `
             -NoNewWindow

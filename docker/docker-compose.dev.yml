@@ -16,16 +16,23 @@ services:
       sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8080 --reload"
 
   ingest-worker:
+    build:
+      context: ..
+      dockerfile: workers/Dockerfile
+      target: dev
     env_file: ../.env
     volumes:
       - ../workers:/app
       - ../proto/gen/go:/proto/gen/go
-    # Go hot reload via CompileDaemon (installed in Dockerfile dev stage)
     command: >
       CompileDaemon -build="go build -o /tmp/ingest-worker ./cmd/ingest"
       -command="/tmp/ingest-worker" -directory="." -graceful-kill=true
 
   api-server:
+    build:
+      context: ..
+      dockerfile: workers/Dockerfile
+      target: dev
     env_file: ../.env
     volumes:
       - ../workers:/app

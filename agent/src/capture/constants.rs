@@ -3,15 +3,18 @@
 //! These are standard protocol values from IETF RFCs. They are shared across
 //! pcap.rs, sni.rs, and dns.rs to eliminate magic numbers in packet parsing.
 
-// ── Ethernet ────────────────────────────────────────────────────────────────
+// ── Ethernet (unix only - parse_eth_frame is #[cfg(unix)]) ──────────────────
 
 /// Minimum Ethernet frame header size (dst MAC + src MAC + ethertype).
+#[cfg(unix)]
 pub const ETH_HEADER_SIZE: usize = 14;
 
 /// Ethertype for IPv4 (RFC 894).
+#[cfg(unix)]
 pub const ETH_TYPE_IPV4: u16 = 0x0800;
 
 /// Ethertype for IPv6 (RFC 2464).
+#[cfg(unix)]
 pub const ETH_TYPE_IPV6: u16 = 0x86DD;
 
 // ── IPv4 ────────────────────────────────────────────────────────────────────
@@ -30,27 +33,34 @@ pub const IPV4_IHL_MASK: u8 = 0x0F;
 #[cfg(windows)]
 pub const IPV4_VERSION: u8 = 4;
 
-// ── IPv6 ────────────────────────────────────────────────────────────────────
+// ── IPv6 (not windows - parse_ipv6_packet is #[cfg(not(windows))]) ──────────
 
 /// Fixed IPv6 header size in bytes (RFC 8200).
+#[cfg(not(windows))]
 pub const IPV6_HEADER_SIZE: usize = 40;
 
 /// IPv6 version number (high nibble of first byte).
+#[cfg(not(windows))]
 pub const IPV6_VERSION: u8 = 6;
 
 /// IPv6 extension header: Hop-by-Hop Options (RFC 8200).
+#[cfg(not(windows))]
 pub const IPV6_EXT_HOP_BY_HOP: u8 = 0;
 
 /// IPv6 extension header: Routing (RFC 8200).
+#[cfg(not(windows))]
 pub const IPV6_EXT_ROUTING: u8 = 43;
 
 /// IPv6 extension header: Fragment (RFC 8200). Fixed 8-byte header.
+#[cfg(not(windows))]
 pub const IPV6_EXT_FRAGMENT: u8 = 44;
 
 /// IPv6 extension header: Destination Options (RFC 8200).
+#[cfg(not(windows))]
 pub const IPV6_EXT_DESTINATION: u8 = 60;
 
 /// Size of the IPv6 Fragment extension header in bytes.
+#[cfg(not(windows))]
 pub const IPV6_FRAGMENT_HEADER_SIZE: usize = 8;
 
 // ── IP protocol numbers ─────────────────────────────────────────────────────
@@ -116,10 +126,11 @@ pub const DNS_COMPRESSION_MARKER: u8 = 0xC0;
 /// Bitmask to extract the offset from a DNS compression pointer.
 pub const DNS_COMPRESSION_OFFSET_MASK: u8 = 0x3F;
 
-// ── Capture buffer ──────────────────────────────────────────────────────────
+// ── Capture buffer (Linux + Windows - macOS uses kernel BPF buffer size) ────
 
 /// Size of the packet receive buffer in bytes. 65536 = maximum IP packet size.
-/// Used by Linux AF_PACKET, macOS BPF, and Windows SIO_RCVALL capture loops.
+/// Used by Linux AF_PACKET and Windows SIO_RCVALL capture loops.
+#[cfg(not(target_os = "macos"))]
 pub const CAPTURE_BUFFER_SIZE: usize = 65536;
 
 // ── macOS BPF ───────────────────────────────────────────────────────────────

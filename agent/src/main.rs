@@ -8,6 +8,7 @@ mod identity;
 mod output;
 mod pipeline;
 mod process;
+mod proto;
 
 use config::{AppConfig, OutputConfig};
 use event::AiConnectionEvent;

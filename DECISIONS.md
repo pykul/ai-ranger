@@ -62,17 +62,19 @@ a real project is the best way to do that.
 The Go argument was not wrong - it would have produced more contributors. The Rust
 decision was made with eyes open to that tradeoff.
 
-### Backend: Python (Flask) + Go, not Rust throughout
+### Backend: Python (FastAPI) + Go, not Rust throughout
 
 The backend follows a pattern from SentinelOne where the author previously worked: a
-thin Python/Flask gateway handles agent-facing ingest (auth, deserialize, enqueue) and
-Go workers handle everything else (async processing, storage writes, dashboard API).
+thin Python gateway handles agent-facing ingest (auth, deserialize, enqueue) and Go
+workers handle everything else (async processing, storage writes, dashboard API).
 
 Python was chosen for the gateway because it is battle-tested for this thin-gateway
-pattern and familiar to ops teams. Go was chosen for workers because goroutines handle
-the concurrent workload well and the ClickHouse and RabbitMQ client libraries are
-mature. The rule: no processing logic ever lives in Flask. The moment a database write
-or business logic appears in a Flask route, it belongs in Go.
+pattern and familiar to ops teams. FastAPI was chosen over Flask for its native async
+support, automatic OpenAPI/Swagger documentation from Pydantic type annotations, and
+built-in request validation. Go was chosen for workers because goroutines handle the
+concurrent workload well and the ClickHouse and RabbitMQ client libraries are mature.
+The rule: no processing logic ever lives in the gateway. The moment a database write
+or business logic appears in a FastAPI route, it belongs in Go.
 
 ### Wire format: Protobuf
 
@@ -588,6 +590,48 @@ proto-generated types as a separate crate, items that are truly public will need
 a retroactive audit later. Constants in capture/constants.rs, batch size defaults in
 output sinks, the dedup bucket constant, and internal types like ProviderRegistry were
 all narrowed from `pub` to `pub(crate)`.
+
+---
+
+## Phase 2 Backend Decisions
+
+### ORMs for Postgres, plain SQL for ClickHouse
+
+All Postgres access uses ORMs. The Python gateway uses SQLAlchemy 2.0 async with Alembic
+for versioned migrations. The Go workers use GORM with struct tags for schema definition.
+Raw SQL against Postgres is not permitted except in Alembic migration files and GORM model
+definitions.
+
+Raw SQL was rejected for Postgres because schema changes become untracked and error-prone
+across environments. With Alembic, every schema change is a versioned migration file that
+runs automatically on startup. Contributors never need to manually apply SQL or wonder
+whether their local database matches production. GORM was chosen for Go because it is the
+idiomatic Go ORM and supports auto-migration for development.
+
+ClickHouse is the intentional exception. No mature ORM exists for ClickHouse in Go. The
+ClickHouse schema is append-only and rarely changes. The `clickhouse-go` driver with plain
+SQL and named query constants is the correct approach. The schema is defined in
+`docker/clickhouse/init.sql` and loaded on container startup.
+
+The SQLAlchemy models in `gateway/models/orm.py` are the source of truth for the Postgres
+schema. The GORM structs in `workers/internal/models/models.go` must mirror them exactly.
+
+### bytes_sent and bytes_received removed from ClickHouse schema
+
+The original DECISIONS.md entry for bytes_sent/bytes_received said "The ClickHouse schema
+retains the columns (migrations are expensive)." That reasoning applied to a hypothetical
+already-deployed schema. Since the ClickHouse schema is being created for the first time
+in Phase 2, there is no migration cost. The columns were removed from the initial schema.
+When TCP session tracking is implemented in a future phase, adding columns back is a
+trivial ALTER TABLE.
+
+### ClickHouse detection_method enum corrected
+
+The ClickHouse detection_method enum was `Enum8('sni'=1, 'dns'=2, 'tcp'=3)` which did not
+match the actual detection methods in the agent (Sni, Dns, IpRange, TcpHeuristic). The
+agent has used IpRange since Phase 1 and TcpHeuristic is reserved for future Ollama
+detection. The enum was corrected to `Enum8('sni'=1, 'dns'=2, 'ip_range'=3,
+'tcp_heuristic'=4)` to match reality.
 
 ---
 

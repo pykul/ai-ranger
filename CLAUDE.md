@@ -12,7 +12,7 @@ Read `ARCHITECTURE.md` before writing any code. It is the single source of truth
 
 ## Build Commands
 
-Polyglot monorepo: Rust (agent), Python/Flask (gateway), Go (workers), React/TypeScript (dashboard). The root Makefile delegates to each component's Makefile. Always use `make` as the top-level entry point.
+Polyglot monorepo: Rust (agent), Python/FastAPI (gateway), Go (workers), React/TypeScript (dashboard). The root Makefile delegates to each component's Makefile. Always use `make` as the top-level entry point.
 
 ```bash
 make build          # Build all components
@@ -52,7 +52,7 @@ AI Ranger is a passive network observability tool that detects AI provider usage
 
 The agent is fully standalone by default - it outputs JSON events to stdout with no backend required. When a backend is configured, the agent sends events to it; otherwise nothing leaves the machine.
 
-**Planned full system** (Phase 2+): Agent → Flask Gateway → RabbitMQ → Go Workers → ClickHouse/Postgres → React Dashboard. See ARCHITECTURE.md for details.
+**Planned full system** (Phase 2+): Agent → FastAPI Gateway → RabbitMQ → Go Workers → ClickHouse/Postgres → React Dashboard. See ARCHITECTURE.md for details.
 
 ## Key Constraints
 
@@ -60,7 +60,8 @@ The agent is fully standalone by default - it outputs JSON events to stdout with
 - **MITM mode is Phase 5+ only.** `capture/mitm/mod.rs` is an intentional stub. Do not implement it.
 - **No external capture dependencies.** The agent uses only OS built-in APIs. The `pcap` crate is explicitly forbidden - no libpcap, npcap, or WinPcap.
 - **Zero call-home by default.** The agent never contacts any URL unless explicitly configured with a backend.
-- **Backend language boundary** (when implemented): Flask gateway handles only HTTP receipt, token verification, protobuf deserialization, and RabbitMQ publishing. All business logic, DB writes, and dashboard API endpoints go in Go workers. Dashboard talks to Go only, never Flask.
+- **Backend language boundary** (when implemented): FastAPI gateway handles only HTTP receipt, token verification, protobuf deserialization, and RabbitMQ publishing. All business logic, DB writes, and dashboard API endpoints go in Go workers. Dashboard talks to Go only, never FastAPI.
 - **Proto changes require `make proto`** and committing regenerated code before other work proceeds.
 - **No magic numbers or magic strings.** Every literal value that represents a configuration parameter, a protocol constant, a timeout, a buffer size, a GUID, or a port number must be defined as a named constant with a doc comment explaining what it is and why the default was chosen. Tuneable operational values that admins may want to adjust must be exposed as optional fields in config.toml with the constant as the fallback default. This applies to all components - Rust agent, Python gateway, and Go workers. When adding a new feature, define its constants before writing the implementation.
 - **Code quality standards.** main.rs is thin - it wires components together but contains no business logic. Every file has a single clear responsibility. Functions longer than 50 lines should be broken into smaller named pieces unless the length is driven by unavoidable sequential steps (protocol parsers, FFI ceremony). Logic that appears in more than one place must be extracted into a shared function. Constructors must hide internal defaults - only accept parameters that genuinely vary at call time. Visibility is minimal by default - use pub(crate) unless external access is required, and pub only when the item is part of a deliberate public interface.
+- **Database access uses ORMs.** Python components use SQLAlchemy 2.0 async with Alembic for migrations. Go components use GORM. Raw SQL against Postgres is not permitted except in Alembic migration files and GORM model definitions. ClickHouse is the intentional exception - use the clickhouse-go driver directly with named query constants. Never hardcode table names, column names, or query strings outside of model definitions and named constants. The SQLAlchemy models in gateway/models/ are the source of truth for the Postgres schema. The GORM structs in workers/internal/models/ must mirror them exactly. Any Alembic migration that adds or changes a column must be accompanied by the corresponding GORM struct update in the same commit.

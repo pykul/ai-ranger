@@ -253,11 +253,11 @@ sinks can be active at once, configured in `config.toml`. This is how teams with
 existing observability infrastructure connect AI Ranger to Datadog, Splunk, or any
 HTTPS endpoint without running the backend at all.
 
-The backend is optional and self-hosted. It consists of a Python/Flask gateway that
+The backend is optional and self-hosted. It consists of a Python/FastAPI gateway that
 receives agent batches and publishes them to RabbitMQ, Go workers that consume from
 the queue and write to storage, and a React dashboard. Postgres holds identity data
-(organizations, agents, enrollment tokens). ClickHouse holds the event timeseries.
-The full stack starts with `make dev`.
+(organizations, agents, enrollment tokens) with schema managed via Alembic migrations.
+ClickHouse holds the event timeseries. The full stack starts with `make dev`.
 
 Internally, the agent's pipeline is organized into focused modules: `pipeline.rs` for
 packet-to-event transformation, `buffer/drain.rs` for upload management, and

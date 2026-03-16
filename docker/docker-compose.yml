@@ -1,0 +1,120 @@
+# AI Ranger - full backend stack.
+#
+# Usage:
+#   docker compose up -d           # start all services
+#   docker compose down            # stop all services
+#   docker compose logs -f         # tail all logs
+#
+# After startup:
+#   Gateway Swagger UI:  http://localhost:8080/docs
+#   Go API Swagger UI:   http://localhost:8081/docs
+#   RabbitMQ Management: http://localhost:15672 (guest/guest)
+
+services:
+
+  # -- Data stores ---------------------------------------------------------
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ranger
+      POSTGRES_PASSWORD: ranger
+      POSTGRES_DB: ranger
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # No init.sql - Postgres schema managed by Alembic migrations.
+    # Gateway runs `alembic upgrade head` before starting uvicorn.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ranger"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    ports:
+      - "8123:8123"   # HTTP interface
+      - "9000:9000"   # Native protocol
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1'"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI
+    volumes:
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # -- Application services ------------------------------------------------
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: gateway/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://ranger:ranger@postgres:5432/ranger"
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      ENVIRONMENT: "development"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    # Run Alembic migrations then start uvicorn. Single command, no entrypoint script.
+    command: >
+      sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8080"
+
+  ingest-worker:
+    build:
+      context: ..
+      dockerfile: workers/Dockerfile
+      target: ingest
+    restart: unless-stopped
+    environment:
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      CLICKHOUSE_ADDR: "clickhouse:9000"
+      DATABASE_URL: "host=postgres port=5432 user=ranger password=ranger dbname=ranger sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  api-server:
+    build:
+      context: ..
+      dockerfile: workers/Dockerfile
+      target: api
+    ports:
+      - "8081:8081"
+    environment:
+      CLICKHOUSE_ADDR: "clickhouse:9000"
+      DATABASE_URL: "host=postgres port=5432 user=ranger password=ranger dbname=ranger sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  clickhouse-data:

@@ -23,6 +23,10 @@ whoami      = "1"
 ipnet       = "2"
 rusqlite    = { version = "0.35", features = ["bundled"] }
 clap        = { version = "4", features = ["derive"] }
+prost       = "0.13"
+
+[build-dependencies]
+prost-build = "0.13"
 
 # Platform-specific capture backends - no external C library installation required.
 # All crates below bind only to OS-built-in APIs (ws2_32.dll, kernel32, libc).

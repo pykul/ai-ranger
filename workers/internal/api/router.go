@@ -1,0 +1,41 @@
+// Package api provides the Chi HTTP router and handler setup for the query API server.
+package api
+
+import (
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	httpSwagger "github.com/swaggo/http-swagger"
+	"gorm.io/gorm"
+
+	"github.com/pykul/ai-ranger/workers/internal/constants"
+	"github.com/pykul/ai-ranger/workers/internal/store"
+)
+
+// NewRouter creates a Chi router with all API routes registered.
+// All route paths reference named constants.
+func NewRouter(pg *gorm.DB, ch clickhouse.Conn) chi.Router {
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+
+	chStore := store.NewClickHouseStore(ch)
+	pgStore := store.NewPostgresStore(pg)
+
+	// Swagger UI at /docs/*
+	r.Get("/docs/*", httpSwagger.WrapHandler)
+
+	// Dashboard endpoints
+	r.Get(constants.RouteDashboardOverview, dashboardOverview(chStore))
+	r.Get(constants.RouteDashboardProviders, dashboardProviders(chStore))
+	r.Get(constants.RouteDashboardUsers, dashboardUsers(chStore))
+	r.Get(constants.RouteDashboardTraffic, dashboardTraffic(chStore))
+	r.Get(constants.RouteDashboardFleet, fleetList(pgStore))
+
+	// Admin endpoints
+	r.Post(constants.RouteAdminTokensCreate, tokenCreate(pgStore))
+	r.Delete(constants.RouteAdminTokensDelete, tokenDelete(pgStore))
+	r.Delete(constants.RouteAdminAgentsDelete, agentRevoke(pgStore))
+
+	return r
+}

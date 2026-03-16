@@ -3,3 +3,13 @@ agent/target/
 .idea/
 .claude/
 PROJECT-EXPLANATION.md
+
+# Python
+__pycache__/
+*.pyc
+
+# Go
+workers/bin/
+
+# Docker
+gateway/.dockerignore

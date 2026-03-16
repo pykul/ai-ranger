@@ -1,0 +1,62 @@
+syntax = "proto3";
+package ranger.v1;
+
+option go_package = "github.com/pykul/ai-ranger/proto/gen/go/ranger/v1";
+
+enum DetectionMethod {
+  SNI = 0;
+  DNS = 1;
+  IP_RANGE = 2;       // Fallback: matched destination IP against provider CIDR ranges
+  TCP_HEURISTIC = 3;
+}
+
+enum CaptureMode {
+  DNS_SNI = 0;
+  MITM = 1;  // Phase 5+, reserved - do not use
+}
+
+message AiConnectionEvent {
+  // Identity
+  string agent_id = 1;
+  string machine_hostname = 2;
+  string os_username = 3;
+  string os_type = 24;  // "linux", "macos", or "windows" - compile-time constant
+
+  // Timing
+  int64 timestamp_ms = 4;
+  optional uint64 duration_ms = 5;
+
+  // Provider
+  string provider = 6;
+  string provider_host = 7;
+  optional string model_hint = 8;
+
+  // Process
+  string process_name = 9;
+  uint32 process_pid = 10;
+  optional string process_path = 11;
+
+  // Dedup
+  string connection_id = 23;  // hash of (src_ip, provider_host, timestamp_ms / 2000)
+
+  // Detection
+  DetectionMethod detection_method = 14;
+  CaptureMode capture_mode = 15;
+
+  // Network
+  string src_ip = 22;  // source IP of the connection
+
+  // Phase 5 - MITM only. Do not populate these fields until Phase 5.
+  bool content_available = 16;
+  optional string payload_ref = 17;
+  optional string model_exact = 18;
+  optional uint32 token_count_input = 19;
+  optional uint32 token_count_output = 20;
+  optional uint32 latency_ttfb_ms = 21;
+}
+
+message EventBatch {
+  string agent_id = 1;
+  int64 sent_at_ms = 2;
+  repeated AiConnectionEvent events = 3;
+}

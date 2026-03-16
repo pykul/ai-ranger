@@ -1,0 +1,18 @@
+syntax = "proto3";
+package ranger.v1;
+
+option go_package = "github.com/pykul/ai-ranger/proto/gen/go/ranger/v1";
+
+message EnrollmentRequest {
+  string token = 1;
+  string agent_id = 2;
+  string hostname = 3;
+  string os_username = 4;
+  string os = 5;
+  string agent_version = 6;
+}
+
+message EnrollmentResponse {
+  string org_id = 1;
+  string agent_id = 2;
+}

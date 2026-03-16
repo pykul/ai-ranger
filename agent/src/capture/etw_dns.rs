@@ -94,30 +94,22 @@ pub fn start(
                 // across ETW events for the same resolution.
                 let connection_id = dedup::compute_connection_id("", &query_name, timestamp_ms);
 
-                let event = AiConnectionEvent {
-                    agent_id: agent_id.clone(),
-                    machine_hostname: machine_hostname.clone(),
-                    os_username: os_username.clone(),
-                    os_type: os_type.clone(),
+                let event = AiConnectionEvent::new(
+                    agent_id.clone(),
+                    machine_hostname.clone(),
+                    os_username.clone(),
+                    os_type.clone(),
                     connection_id,
                     timestamp_ms,
-                    duration_ms: None,
-                    provider: provider.to_string(),
-                    provider_host: query_name,
-                    model_hint: None,
+                    provider.to_string(),
+                    query_name,
                     process_name,
-                    process_pid: pid,
-                    process_path: proc_path,
-                    src_ip: String::new(), // ETW DNS events don't have a source IP
-                    detection_method: DetectionMethod::Dns,
-                    capture_mode: CaptureMode::DnsSni,
-                    content_available: false,
-                    payload_ref: None,
-                    model_exact: None,
-                    token_count_input: None,
-                    token_count_output: None,
-                    latency_ttfb_ms: None,
-                };
+                    pid,
+                    proc_path,
+                    String::new(), // ETW DNS events don't have a source IP
+                    DetectionMethod::Dns,
+                    CaptureMode::DnsSni,
+                );
 
                 // Send through channel - blocking_send is safe here because ferrisetw
                 // callbacks run on a dedicated ETW processing thread, not a tokio thread.

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 /// into a single logical connection. 2 seconds handles realistic ETW DNS-Client
 /// latency (1-3s) without over-collapsing distinct connections.
 /// See DECISIONS.md "Why 2-second buckets" for the full rationale.
-pub const DEDUP_BUCKET_MS: i64 = 2000;
+const DEDUP_BUCKET_MS: i64 = 2000;
 
 /// Compute a connection_id that identifies a logical connection attempt.
 ///

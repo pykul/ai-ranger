@@ -95,36 +95,50 @@ impl EventBuffer {
     }
 }
 
+/// Open the SQLite event buffer if HTTP output is configured.
+/// Returns None if HTTP output is not active or if the database cannot be opened.
+pub(crate) fn open_if_needed(has_http: bool) -> Option<std::sync::Arc<EventBuffer>> {
+    if !has_http {
+        return None;
+    }
+    let path = crate::identity::config::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("buffer.db");
+    match EventBuffer::open(&path) {
+        Ok(buf) => {
+            eprintln!("[ai-ranger] SQLite buffer active at {}", path.display());
+            Some(std::sync::Arc::new(buf))
+        }
+        Err(e) => {
+            eprintln!("[ai-ranger] Warning: could not open buffer DB: {e}");
+            eprintln!("[ai-ranger] HTTP events will be sent directly (no buffering)");
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::event::{CaptureMode, DetectionMethod};
 
     fn test_event() -> AiConnectionEvent {
-        AiConnectionEvent {
-            agent_id: "test-agent".to_string(),
-            machine_hostname: "test-host".to_string(),
-            os_username: "testuser".to_string(),
-            os_type: "linux".to_string(),
-            connection_id: String::new(),
-            timestamp_ms: 1234567890,
-            duration_ms: None,
-            provider: "openai".to_string(),
-            provider_host: "api.openai.com".to_string(),
-            model_hint: None,
-            process_name: "curl".to_string(),
-            process_pid: 1234,
-            process_path: None,
-            src_ip: "192.168.1.100".to_string(),
-            detection_method: DetectionMethod::Sni,
-            capture_mode: CaptureMode::DnsSni,
-            content_available: false,
-            payload_ref: None,
-            model_exact: None,
-            token_count_input: None,
-            token_count_output: None,
-            latency_ttfb_ms: None,
-        }
+        AiConnectionEvent::new(
+            "test-agent".to_string(),
+            "test-host".to_string(),
+            "testuser".to_string(),
+            "linux".to_string(),
+            String::new(),
+            1234567890,
+            "openai".to_string(),
+            "api.openai.com".to_string(),
+            "curl".to_string(),
+            1234,
+            None,
+            "192.168.1.100".to_string(),
+            DetectionMethod::Sni,
+            CaptureMode::DnsSni,
+        )
     }
 
     #[test]

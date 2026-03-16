@@ -6,7 +6,7 @@ use tokio::sync::Mutex;
 
 /// Default number of events to buffer before flushing to the webhook endpoint.
 /// 100 balances memory usage against the overhead of small HTTP requests.
-pub const DEFAULT_WEBHOOK_BATCH_SIZE: usize = 100;
+pub(crate) const DEFAULT_WEBHOOK_BATCH_SIZE: usize = 100;
 
 /// POST JSON arrays of events to an arbitrary URL with configurable headers.
 ///

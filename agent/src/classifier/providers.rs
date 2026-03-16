@@ -31,7 +31,7 @@ struct ProvidersFile {
 
 #[derive(Deserialize, Clone)]
 #[allow(dead_code)] // display_name used by output sinks in later steps
-pub struct ProviderEntry {
+pub(crate) struct ProviderEntry {
     pub name: String,
     pub display_name: String,
     pub hostnames: Vec<String>,
@@ -48,7 +48,7 @@ struct ParsedProvider {
     networks: Vec<IpNet>,
 }
 
-pub struct ProviderRegistry {
+pub(crate) struct ProviderRegistry {
     providers: Vec<ParsedProvider>,
 }
 

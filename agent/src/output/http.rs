@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 /// Default number of events to buffer before flushing to the HTTP backend.
 /// 100 balances memory usage against the overhead of small HTTP requests.
-pub const DEFAULT_HTTP_BATCH_SIZE: usize = 100;
+pub(crate) const DEFAULT_HTTP_BATCH_SIZE: usize = 100;
 
 /// POST protobuf-encoded EventBatch to the gateway.
 /// Events are batched internally and flushed periodically or when flush() is called.
@@ -63,7 +63,7 @@ impl EventSink for HttpSink {
         let should_flush;
         {
             let mut batch = self.batch.lock().await;
-            batch.push(clone_event(event));
+            batch.push(event.clone());
             should_flush = batch.len() >= self.batch_size;
         }
         if should_flush {
@@ -78,34 +78,5 @@ impl EventSink for HttpSink {
             std::mem::take(&mut *batch)
         };
         self.send_batch(&events).await
-    }
-}
-
-/// Clone an event. AiConnectionEvent doesn't derive Clone to keep it lightweight
-/// in the common case; this is only needed for batching sinks.
-fn clone_event(e: &AiConnectionEvent) -> AiConnectionEvent {
-    AiConnectionEvent {
-        agent_id: e.agent_id.clone(),
-        machine_hostname: e.machine_hostname.clone(),
-        os_username: e.os_username.clone(),
-        os_type: e.os_type.clone(),
-        connection_id: e.connection_id.clone(),
-        timestamp_ms: e.timestamp_ms,
-        duration_ms: e.duration_ms,
-        provider: e.provider.clone(),
-        provider_host: e.provider_host.clone(),
-        model_hint: e.model_hint.clone(),
-        process_name: e.process_name.clone(),
-        process_pid: e.process_pid,
-        process_path: e.process_path.clone(),
-        src_ip: e.src_ip.clone(),
-        detection_method: e.detection_method,
-        capture_mode: e.capture_mode,
-        content_available: e.content_available,
-        payload_ref: e.payload_ref.clone(),
-        model_exact: e.model_exact.clone(),
-        token_count_input: e.token_count_input,
-        token_count_output: e.token_count_output,
-        latency_ttfb_ms: e.latency_ttfb_ms,
     }
 }

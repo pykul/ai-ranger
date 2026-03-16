@@ -22,7 +22,7 @@ fn is_false(v: &bool) -> bool {
     !v
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AiConnectionEvent {
     // Identity
     pub agent_id: String,
@@ -75,4 +75,55 @@ pub struct AiConnectionEvent {
     pub token_count_output: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latency_ttfb_ms: Option<u32>,
+}
+
+impl AiConnectionEvent {
+    /// Construct a new event with Phase 5 fields defaulted to None/false.
+    ///
+    /// Only accepts fields that genuinely vary at construction time.
+    /// Phase 5 MITM fields (content_available, payload_ref, model_exact,
+    /// token_count_input, token_count_output, latency_ttfb_ms) are always
+    /// default -- they will be populated when MITM mode ships in Phase 5.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        agent_id: String,
+        machine_hostname: String,
+        os_username: String,
+        os_type: String,
+        connection_id: String,
+        timestamp_ms: i64,
+        provider: String,
+        provider_host: String,
+        process_name: String,
+        process_pid: u32,
+        process_path: Option<String>,
+        src_ip: String,
+        detection_method: DetectionMethod,
+        capture_mode: CaptureMode,
+    ) -> Self {
+        Self {
+            agent_id,
+            machine_hostname,
+            os_username,
+            os_type,
+            connection_id,
+            timestamp_ms,
+            duration_ms: None,
+            provider,
+            provider_host,
+            model_hint: None,
+            process_name,
+            process_pid,
+            process_path,
+            src_ip,
+            detection_method,
+            capture_mode,
+            content_available: false,
+            payload_ref: None,
+            model_exact: None,
+            token_count_input: None,
+            token_count_output: None,
+            latency_ttfb_ms: None,
+        }
+    }
 }

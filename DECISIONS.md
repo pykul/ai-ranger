@@ -461,6 +461,61 @@ across all protocols) more cleanly.
 
 ---
 
+## Pre-Phase 2 Maturity Pass
+
+A codebase-wide audit was conducted before Phase 2 to bring the agent to enterprise-grade
+quality. The audit covered magic numbers, configuration values, error handling, naming,
+dead code, and documentation. Three decisions from this pass are worth recording.
+
+### Constants organization: near usage, not a global file
+
+Named constants were organized close to where they are used rather than in a single
+top-level `constants.rs` file. Protocol constants shared across capture modules went into
+`capture/constants.rs` because pcap.rs, sni.rs, and dns.rs all reference the same
+protocol values (TLS record types, DNS flags, Ethernet ethertypes). Operational constants
+(drain intervals, batch sizes, timeouts) went at the top of the file that owns them -
+drain timing in main.rs, HTTP batch size in http.rs, dedup bucket width in dedup.rs.
+
+A global constants file was considered and rejected. It creates artificial coupling between
+unrelated modules - changing a DNS constant should not require touching the same file as
+a change to the HTTP batch size. This is inconsistent with how the Rust standard library
+and major crates organize their constants, and it produces a file that grows without bound
+as the project adds features. The rule: a constant lives in the module that gives it
+meaning.
+
+### Tuneable operational values exposed via config.toml, not environment variables
+
+Values that admins may want to tune without recompiling (drain interval, batch sizes,
+fetch timeout) were exposed as optional fields in the `[agent]` section of config.toml.
+The named constants remain as compile-time fallback defaults; config values take
+precedence when present via `Option<u64>` fields and `.unwrap_or(CONSTANT)`.
+
+Environment variables were considered and rejected. They are a common pattern in
+twelve-factor Python and Go services but non-idiomatic for Rust CLI tools. The agent
+already has config.toml as its established configuration entry point, and adding a parallel
+env-var configuration path would create two ways to set the same value with unclear
+precedence. One configuration mechanism is better than two.
+
+### All .unwrap() and .expect() calls are intentional
+
+The audit reviewed every `.unwrap()`, `.expect()`, and `panic!()` call outside test code.
+All were found to be correct:
+
+- `providers.rs:118` `.expect("bundled providers.toml must be valid")` - the bundled file
+  is compiled in via `include_str!` and validated by the `bundled_toml_parses` test. If
+  this panics, the binary itself is corrupt and cannot operate. Panic is correct.
+- `providers.rs:133,159` `.expect("providers not initialized")` - these are programming
+  errors (forgetting to call `init()` before `classify()`). This is an invariant violation,
+  not a recoverable runtime condition. Panic is correct.
+- `main.rs:150` `sinks.into_iter().next().unwrap()` - guarded by `sinks.len() == 1` on
+  the same line. Structurally unreachable.
+- `pcap.rs:480` `CString::new(...).unwrap()` - format string `/dev/bpf{i}` cannot contain
+  null bytes. Structurally unreachable.
+
+No changes were made to error handling. The codebase does not have hidden panic paths.
+
+---
+
 ## Considered but Deferred
 
 ### eBPF for Linux packet capture

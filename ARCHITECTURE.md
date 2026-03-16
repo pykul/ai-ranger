@@ -500,9 +500,15 @@ pub struct AgentConfig {
 }
 ```
 
-The enrollment token is passed via `--token` during the `ai-ranger enroll` command
-and consumed by the backend. It is not persisted in `AgentConfig` - after enrollment
-completes, the agent uses `agent_id` for all subsequent authentication.
+The enrollment token is passed via `--token` and `--backend` on the command line.
+Two enrollment modes:
+- `ai-ranger --token=tok_abc --backend=http://...` — enroll and start capturing in one step.
+  If already enrolled, the flags are ignored and the saved identity is used.
+- `ai-ranger --enroll --token=tok_abc --backend=http://...` — enroll and exit without
+  capturing. Used by installer scripts that start the daemon separately.
+
+The token is consumed during enrollment and not persisted in `AgentConfig` — after
+enrollment completes, the agent uses `agent_id` for all subsequent authentication.
 
 ---
 
@@ -608,7 +614,7 @@ type = "http"
 url = "http://localhost:8080"   # use https:// in production
 # Authentication uses agent_id as Bearer token, set during enrollment.
 # No token field needed here - the agent authenticates with the identity
-# established by `ai-ranger --enroll --token=... --backend=...`.
+# established by `ai-ranger --token=... --backend=...`.
 
 [[outputs]]
 type = "webhook"
@@ -887,7 +893,7 @@ OS-specific APIs for edge cases.
 4. Installer:
    a. Downloads correct binary for OS/arch from GitHub Releases
    b. Verifies SHA256 checksum
-   c. Runs: ai-ranger enroll --token=tok_abc123 --backend=https://your-instance.com
+   c. Runs: ai-ranger --token=tok_abc123 --backend=https://your-instance.com
    d. Backend validates token -> creates agent record -> returns org_id
    e. Agent stores agent_id + config locally
    f. Token use_count++ (invalidated if single-use)

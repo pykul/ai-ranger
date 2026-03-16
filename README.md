@@ -137,27 +137,23 @@ Wait for all services to start. You should see health checks passing for all con
 | API Server Swagger UI | http://localhost:8081/docs |
 | RabbitMQ Management | http://localhost:15672 |
 
-### 2. Build and enroll the agent
+### 2. Build, enroll, and run the agent
 
 The dev environment seeds a test enrollment token (`tok_test_dev`) automatically.
+Build the agent and start it with `--token` and `--backend` — it enrolls and starts
+capturing in one step:
 
 ```bash
 cargo build --manifest-path agent/Cargo.toml
 
-sudo ./target/debug/ai-ranger --enroll --token=tok_test_dev --backend=http://localhost:8080
+sudo ./target/debug/ai-ranger --token=tok_test_dev --backend=http://localhost:8080
 ```
 
-After enrollment, the agent stores its identity in `~/.config/ai-ranger/config.json`
-(Linux), `~/Library/Application Support/ai-ranger/config.json` (macOS), or
-`%APPDATA%\ai-ranger\config.json` (Windows). You only need to enroll once.
+On first run, the agent enrolls with the backend and begins capturing immediately.
+On subsequent runs, just `sudo ./target/debug/ai-ranger` — the enrollment is saved
+to `~/.config/ai-ranger/config.json` and reused automatically.
 
-### 3. Run the agent
-
-```bash
-sudo ./target/debug/ai-ranger
-```
-
-### 4. Verify end-to-end
+### 3. Verify end-to-end
 
 In another terminal, trigger some AI provider traffic:
 
@@ -228,14 +224,22 @@ sha256sum -c checksums.txt --ignore-missing
 
 ### Enrolling with a production backend
 
-Generate an enrollment token from the admin API, then enroll the agent:
+Generate an enrollment token from the admin API, then start the agent:
+
+```bash
+ai-ranger --token=tok_your_token --backend=https://your-instance.com
+```
+
+The agent enrolls with the backend on first run and starts capturing immediately.
+On subsequent runs, just `ai-ranger` — the enrollment is remembered.
+
+For scripted deployments where enrollment and daemon start are separate steps
+(e.g. installer scripts), use `--enroll` to enroll and exit without capturing:
 
 ```bash
 ai-ranger --enroll --token=tok_your_token --backend=https://your-instance.com
+# then start as daemon separately
 ```
-
-The agent installs as a system daemon (`launchd` on macOS, `systemd` on Linux,
-Windows Service on Windows) and starts reporting automatically.
 
 ---
 

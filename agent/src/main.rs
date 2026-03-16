@@ -64,11 +64,7 @@ fn main() {
 
         // resolve_identity exits the process if --enroll is set.
         // For auto-enroll it returns the config so we can continue to capture.
-        identity::enroll::resolve_identity(
-            cli.enroll,
-            cli.token.as_deref(),
-            cli.backend.as_deref(),
-        )
+        identity::enroll::resolve_identity(cli.enroll, cli.token.as_deref(), cli.backend.as_deref())
     } else {
         None
     };
@@ -98,7 +94,8 @@ async fn async_main(cli: Cli, pre_enrolled: Option<identity::config::AgentConfig
     classifier::providers::init_with_fetched(fetched.as_deref(), local.as_deref());
 
     // Use pre-enrolled config if available, otherwise load from disk.
-    let agent_config = pre_enrolled.or_else(|| identity::enroll::resolve_identity(false, None, None));
+    let agent_config =
+        pre_enrolled.or_else(|| identity::enroll::resolve_identity(false, None, None));
     let agent_id = agent_config
         .as_ref()
         .map(|c| c.agent_id.clone())

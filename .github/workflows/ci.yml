@@ -282,7 +282,7 @@ jobs:
         run: pip install -r tests/integration/requirements.txt
 
       - name: Run integration tests
-        run: sudo -E pytest tests/integration/ -v --tb=short -m "not network"
+        run: /usr/bin/sudo -E $(which pytest) tests/integration/ -v --tb=short -m "not network"
         env:
           AGENT_BINARY: target/release/ai-ranger
 

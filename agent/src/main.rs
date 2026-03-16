@@ -42,10 +42,29 @@ struct Cli {
     backend: Option<String>,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let cli = <Cli as clap::Parser>::parse();
 
+    // Enrollment uses reqwest::blocking which creates its own runtime.
+    // Handle it before entering the tokio async runtime to avoid nesting.
+    if cli.enroll {
+        // Load providers synchronously for enrollment.
+        let local = identity::config::config_dir().map(|d| d.join("providers.toml"));
+        classifier::providers::init_with_fetched(None, local.as_deref());
+
+        identity::enroll::load_or_enroll(true, cli.token.as_deref(), cli.backend.as_deref());
+        unreachable!("load_or_enroll exits the process on --enroll");
+    }
+
+    // Normal operation: start the async runtime.
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build tokio runtime")
+        .block_on(async_main(cli));
+}
+
+async fn async_main(cli: Cli) {
     let app_config = AppConfig::load(&cli.config).unwrap_or_else(|e| {
         eprintln!("[ai-ranger] Warning: could not load config: {e}");
         AppConfig::default()
@@ -61,9 +80,8 @@ async fn main() {
     let local = identity::config::config_dir().map(|d| d.join("providers.toml"));
     classifier::providers::init_with_fetched(fetched.as_deref(), local.as_deref());
 
-    // Enrollment or identity loading (exits process if --enroll)
-    let agent_config =
-        identity::enroll::load_or_enroll(cli.enroll, cli.token.as_deref(), cli.backend.as_deref());
+    // Load existing identity (enrollment already handled above).
+    let agent_config = identity::enroll::load_or_enroll(false, None, None);
     let agent_id = agent_config
         .as_ref()
         .map(|c| c.agent_id.clone())

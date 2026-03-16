@@ -12,6 +12,9 @@ pub(crate) const DEFAULT_HTTP_BATCH_SIZE: usize = 100;
 /// Content-Type header value for protobuf payloads.
 const CONTENT_TYPE_PROTOBUF: &str = "application/x-protobuf";
 
+/// Ingest endpoint path on the gateway.
+const INGEST_PATH: &str = "/v1/ingest";
+
 /// POST protobuf-encoded EventBatch to the gateway.
 /// Events are batched internally and flushed periodically or when flush() is called.
 ///
@@ -26,8 +29,9 @@ pub struct HttpSink {
 
 impl HttpSink {
     pub fn new(url: String, agent_id: String, batch_size: Option<usize>) -> Self {
+        let ingest_url = format!("{}{}", url.trim_end_matches('/'), INGEST_PATH);
         Self {
-            url,
+            url: ingest_url,
             agent_id,
             client: reqwest::Client::new(),
             batch: Mutex::new(Vec::new()),

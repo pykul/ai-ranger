@@ -20,12 +20,12 @@ if _gateway_dir not in sys.path:
     sys.path.insert(0, _gateway_dir)
 
 # Import all models so Alembic sees them for autogenerate.
-from models.base import Base
-from models.org import Organization  # noqa: F401
-from models.token import EnrollmentToken  # noqa: F401
-from models.agent import Agent  # noqa: F401
+from models.base import Base  # noqa: E402
+from models.org import Organization  # noqa: E402, F401
+from models.token import EnrollmentToken  # noqa: E402, F401
+from models.agent import Agent  # noqa: E402, F401
 
-from config import get_settings
+from config import get_settings  # noqa: E402
 
 alembic_config = context.config
 

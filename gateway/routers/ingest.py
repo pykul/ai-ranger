@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from constants import CONTENT_TYPE_PROTOBUF, ROUTE_INGEST
+from constants import ROUTE_INGEST
 from dependencies import get_db, verify_bearer_token
 from models.agent import Agent
 from proto_utils import deserialize_event_batch

@@ -186,13 +186,8 @@ jobs:
         run: mypy . --ignore-missing-imports
         continue-on-error: true
 
-      - name: Test
-        run: |
-          if [ -d tests ]; then
-            pytest tests/ -v
-          else
-            echo "No tests directory found — skipping"
-          fi
+      # Gateway unit tests run here when gateway/tests/ exists.
+      # Integration tests run in the separate integration-tests job.
 
   # ── Workers (Go) ─────────────────────────────────────────────────────────
   workers:

@@ -144,7 +144,7 @@ The dev environment seeds a test enrollment token (`tok_test_dev`) automatically
 ```bash
 cargo build --manifest-path agent/Cargo.toml
 
-sudo ./agent/target/debug/ai-ranger --enroll --token=tok_test_dev --backend=http://localhost:8080
+sudo ./target/debug/ai-ranger --enroll --token=tok_test_dev --backend=http://localhost:8080
 ```
 
 After enrollment, the agent stores its identity in `~/.config/ai-ranger/config.json`
@@ -154,7 +154,7 @@ After enrollment, the agent stores its identity in `~/.config/ai-ranger/config.j
 ### 3. Run the agent
 
 ```bash
-sudo ./agent/target/debug/ai-ranger
+sudo ./target/debug/ai-ranger
 ```
 
 ### 4. Verify end-to-end

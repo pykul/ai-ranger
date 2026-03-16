@@ -22,7 +22,7 @@ it works.
 
 The core insight is to treat two AI instances as playing different roles.
 
-**Claude (this chat) acts as the supervisor.** It holds the full project history across
+**Claude acts as the supervisor.** It holds the full project history across
 the entire build. It understands why decisions were made, what was tried and rejected,
 and how everything fits together. It never writes code directly. Its job is to think
 through problems carefully, make architectural decisions, and translate those decisions

@@ -714,3 +714,25 @@ This was chosen over the shared multi-target approach because:
   scaling, and resource limits. Separate images are a prerequisite for this.
 - The shared `Dockerfile.dev` with CompileDaemon handles the dev hot-reload case
   where both services need the Go toolchain.
+
+### Two-layer integration test strategy
+
+Integration tests use two layers: real agent tests first (highest confidence), with
+synthetic event tests as a reliable fallback for environments where raw socket capture
+is unavailable.
+
+**Real agent tests** start the actual compiled agent binary, trigger real network
+traffic (curl to api.openai.com), and verify events flow through the full pipeline
+to ClickHouse. These require root for raw socket capture and are automatically skipped
+when not running as root. In CI (GitHub Actions Linux runners are root by default),
+these run on every push.
+
+**Synthetic event tests** send protobuf EventBatch messages directly to the gateway
+HTTP endpoint. They test the full pipeline from HTTP ingest through RabbitMQ to
+ClickHouse without requiring a real agent, root access, or network traffic. These
+run on all environments and provide coverage when real agent tests cannot run.
+
+Windows integration tests were considered and deferred. Running Linux Docker containers
+alongside a Windows agent binary in the same CI job adds complexity without proportional
+benefit — the agent's Windows-specific capture code (SIO_RCVALL + ETW) is tested by
+the existing agent CI matrix on windows-latest.

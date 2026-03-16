@@ -239,6 +239,64 @@ jobs:
       - name: Validate docker-compose.yml
         run: docker compose --env-file .env -f docker/docker-compose.yml config --quiet
 
+  # ── Integration tests ─────────────────────────────────────────────────────
+  integration-tests:
+    name: Integration Tests
+    needs: [gateway, workers, agent]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Create .env from example
+        run: cp .env.example .env
+
+      - name: Start Docker Compose stack
+        run: |
+          cd docker
+          docker compose --env-file ../.env up -d --build
+
+      - name: Wait for services to be healthy
+        run: |
+          for i in $(seq 1 45); do
+            GW=$(curl -sf http://localhost:8080/health 2>/dev/null || true)
+            API=$(curl -sf http://localhost:8081/health 2>/dev/null || true)
+            if echo "$GW" | grep -q '"ok"' && echo "$API" | grep -q '"ok"'; then
+              echo "All services healthy after ${i}s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Services failed to become healthy"
+          docker compose --env-file .env -f docker/docker-compose.yml ps
+          docker compose --env-file .env -f docker/docker-compose.yml logs
+          exit 1
+
+      - name: Build agent binary
+        run: cargo build --release --manifest-path agent/Cargo.toml
+
+      - name: Install test dependencies
+        run: pip install -r tests/integration/requirements.txt
+
+      - name: Run integration tests
+        run: pytest tests/integration/ -v --tb=short -m "not network"
+        env:
+          AGENT_BINARY: target/release/ai-ranger
+
+      - name: Cleanup
+        if: always()
+        run: |
+          cd docker
+          docker compose --env-file ../.env down -v
+
   # ── Dashboard (React/TypeScript) ─────────────────────────────────────────
   # Uncomment when dashboard/ is created (Phase 3)
   #

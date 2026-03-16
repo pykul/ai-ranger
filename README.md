@@ -372,6 +372,25 @@ make test       # run all tests
 make lint       # lint all components
 ```
 
+### Running integration tests
+
+Integration tests verify the full pipeline against the Docker Compose stack:
+
+```bash
+# Unit tests (no dependencies needed)
+make test
+
+# Integration tests (requires make dev to be running)
+make dev
+pip install -r tests/integration/requirements.txt
+pytest tests/integration/ -v
+
+# Real agent tests (requires root)
+sudo pytest tests/integration/test_ingest_real_agent.py -v
+```
+
+See `tests/README.md` for details on the test layers and how to add new tests.
+
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ---

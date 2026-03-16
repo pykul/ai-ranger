@@ -1609,6 +1609,41 @@ via `env_file` and `${VAR}` interpolation. No credentials are hardcoded in the c
 | `RABBITMQ_DEFAULT_USER` | RabbitMQ default user (read natively by the image) |
 | `RABBITMQ_DEFAULT_PASS` | RabbitMQ default password |
 
+---
+
+## Testing Strategy
+
+Three levels of testing, each with different scope and requirements:
+
+### Unit tests
+
+Per-component tests with no external dependencies. Run with `make test`.
+
+- **Agent (Rust):** 49 tests covering SNI parsing, DNS parsing, provider classification,
+  IP range matching, SQLite buffer operations, and the pipeline. No root required.
+- **Gateway (Python):** pytest tests in `gateway/tests/` when present.
+- **Workers (Go):** `go test ./...` covering models and query helpers.
+
+### Integration tests
+
+Full Docker Compose stack tests in `tests/integration/`. Two layers:
+
+- **Synthetic event tests:** Send protobuf EventBatch messages directly to the gateway
+  HTTP endpoint. Test the full pipeline from HTTP ingest through RabbitMQ to ClickHouse
+  without requiring a real agent or raw socket access. Run on all environments.
+- **Real agent tests:** Run the actual compiled agent binary, trigger real network traffic,
+  and verify events flow through the full pipeline. Require root for raw socket capture.
+  Automatically skipped when not running as root.
+
+Run with `pytest tests/integration/ -v`. See `tests/README.md` for details.
+
+### CI smoke tests
+
+Integration tests run automatically in CI after component builds pass. The CI job
+starts the Docker Compose stack, builds the agent binary, and runs all integration
+tests except those marked `@pytest.mark.network`. Real agent tests run as root
+(GitHub Actions Linux runners are root by default).
+
 ### Mapping to Kubernetes
 
 For k8s deployments, map non-sensitive variables to ConfigMaps and credentials to

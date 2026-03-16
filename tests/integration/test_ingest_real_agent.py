@@ -1,0 +1,109 @@
+"""Real agent binary integration tests. Requires root for raw socket capture."""
+
+import json
+import os
+import signal
+import subprocess
+import tempfile
+import time
+
+import pytest
+
+from helpers.agent import is_root
+
+pytestmark = pytest.mark.skipif(
+    not is_root(),
+    reason="Requires root for raw socket capture",
+)
+
+
+def test_real_agent_enrollment(agent_binary, gateway_client):
+    """The agent binary successfully enrolls against the local gateway."""
+    from conftest import GATEWAY_URL, SEED_TOKEN
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env = os.environ.copy()
+        env["XDG_CONFIG_HOME"] = tmpdir
+
+        result = subprocess.run(
+            [agent_binary, "--enroll", "--token", SEED_TOKEN, "--backend", GATEWAY_URL],
+            capture_output=True, text=True, env=env, timeout=15,
+        )
+        assert result.returncode == 0, f"Enrollment failed: {result.stderr}"
+        assert "Enrolled as" in result.stderr
+
+
+@pytest.mark.network
+def test_real_agent_captures_sni(agent_binary):
+    """Start agent in stdout mode, curl an AI provider, verify JSON event."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write('[agent]\nmode = "dns-sni"\n\n[[outputs]]\ntype = "stdout"\n')
+        config_path = f.name
+
+    try:
+        proc = subprocess.Popen(
+            [agent_binary, "--config", config_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        time.sleep(3)
+
+        subprocess.run(["curl", "-s", "https://api.openai.com"],
+                        capture_output=True, timeout=10)
+        time.sleep(3)
+
+        proc.send_signal(signal.SIGTERM)
+        stdout, stderr = proc.communicate(timeout=10)
+
+        events = []
+        for line in stdout.decode().splitlines():
+            try:
+                obj = json.loads(line)
+                if "provider" in obj:
+                    events.append(obj)
+            except json.JSONDecodeError:
+                continue
+
+        assert len(events) > 0, f"No events captured. stderr: {stderr.decode()[:500]}"
+        assert any(e.get("provider") == "openai" for e in events)
+
+    finally:
+        os.unlink(config_path)
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def test_real_agent_stdout_mode(agent_binary):
+    """Agent in stdout mode captures and prints JSON events without backend."""
+    proc = subprocess.Popen(
+        [agent_binary],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        time.sleep(3)
+
+        subprocess.run(["curl", "-s", "https://api.openai.com"],
+                        capture_output=True, timeout=10)
+        time.sleep(3)
+
+        proc.send_signal(signal.SIGTERM)
+        stdout, _ = proc.communicate(timeout=10)
+
+        events = []
+        for line in stdout.decode().splitlines():
+            try:
+                obj = json.loads(line)
+                if "provider" in obj:
+                    events.append(obj)
+            except json.JSONDecodeError:
+                continue
+
+        assert len(events) > 0, "No events captured in stdout mode"
+        assert "provider" in events[0]
+
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()

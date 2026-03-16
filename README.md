@@ -229,8 +229,9 @@ command finished before the lookup ran. The process ID is always accurate regard
 Real AI tools like Cursor, Claude Code, and Copilot keep their connections open and
 always show up correctly.
 
-**A note on browser detection.** Modern browsers encrypt the destination hostname
-using Encrypted Client Hello (ECH), which prevents the agent from reading it via SNI.
+**A note on browser detection.** Some applications, primarily modern browsers, encrypt
+the destination hostname using Encrypted Client Hello (ECH), a general TLS privacy
+feature, which prevents the agent from reading it via SNI.
 For providers with dedicated IP ranges - currently the Anthropic API - the agent falls
 back to matching the connection's destination IP against known CIDR ranges. These
 connections appear with `detection_method: "IP_RANGE"` in the output.

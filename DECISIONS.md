@@ -207,10 +207,11 @@ the queried hostname and the resolving PID directly. No NdisCap activation, no n
 no subprocess dependency - just standard ETW provider consumption via ferrisetw.
 
 This is actually better than raw packet capture for the use case: the hostname arrives
-directly without SNI parsing, and PID attribution comes for free. The only gap: browsers
-that use their own internal DoH resolver (Chrome, Firefox, Edge, Brave) bypass the
-Windows DNS client entirely, so ETW DNS-Client events do not fire for those connections.
-This is a browser-category limitation, not a Windows limitation.
+directly without SNI parsing, and PID attribution comes for free. The only gap: applications
+that implement their own internal DoH resolver, bypassing the OS DNS client -- currently
+primarily browsers (Chrome, Firefox, Edge, Brave) -- cause ETW DNS-Client events to not
+fire for those connections. This is a limitation of any application that bypasses the OS
+DNS resolver, not a Windows limitation.
 
 Final Windows capture architecture: SIO_RCVALL for IPv4 packets (existing, proven, zero
 latency) running in parallel with ETW DNS-Client for hostname visibility across all
@@ -374,27 +375,28 @@ For a community project trying to build momentum, one repo with one issue tracke
 
 ---
 
-## Browser Detection Limitations
+## ECH and DoH Detection Limitations
 
 ### The ECH + DoH ceiling
 
-Modern browsers (Chrome, Firefox, Edge, Brave) deploy two privacy features that defeat
-passive network observation simultaneously:
-- ECH (Encrypted Client Hello): the real SNI hostname is encrypted, the outer
-  ClientHello contains a dummy hostname
-- DoH (DNS over HTTPS): DNS queries go to dns.google:443 or cloudflare-dns.com:443
-  over HTTPS, bypassing UDP port 53
+ECH (Encrypted Client Hello) and DoH (DNS over HTTPS) are general TLS and DNS privacy
+features that any application can implement. Browsers (Chrome, Firefox, Edge, Brave) are
+the primary current deployers of both:
+- ECH: the real SNI hostname is encrypted, the outer ClientHello contains a dummy hostname
+- DoH: DNS queries go to dns.google:443 or cloudflare-dns.com:443 over HTTPS, bypassing
+  UDP port 53
 
-These eliminate both detection signals the agent relies on for browser traffic. This is
-not a bug - it is browsers working as designed. The agent reliably detects CLI tools,
-SDKs, and desktop AI apps (Cursor, Claude Code, Copilot) because those do not use ECH.
+These eliminate both detection signals the agent relies on for traffic from applications
+that implement them. This is not a bug - it is these privacy features working as designed.
+The agent reliably detects CLI tools, SDKs, and desktop AI apps (Cursor, Claude Code,
+Copilot) because those do not currently implement ECH.
 
 The research document BROWSER-DETECTION-OPTIONS.md covers all investigated approaches.
-The honest conclusion: passive network-level detection has a hard ceiling with modern
-browsers on unmanaged machines. MITM mode (Phase 5) is the complete answer for
-organizations that need browser-level visibility. ETW DNS-Client on Windows provides
-partial browser coverage for browsers that use the system DNS resolver rather than
-their own internal DoH.
+The honest conclusion: passive network-level detection has a hard ceiling with applications
+that deploy ECH+DoH. MITM mode (Phase 5) is the complete answer for organizations that
+need visibility into ECH-protected traffic. ETW DNS-Client on Windows provides partial
+coverage for applications that use the system DNS resolver rather than their own internal
+DoH.
 
 ---
 

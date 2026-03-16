@@ -657,7 +657,7 @@ If not set, the default is 100.
 # Required fields: name, display_name, hostnames
 # Optional: ip_ranges - CIDR ranges for providers with dedicated IP space.
 #   Used as a last-resort fallback when both SNI and DNS detection fail
-#   (e.g. browser traffic with ECH+DoH). Only add ip_ranges for providers
+#   (e.g. applications using ECH+DoH, currently primarily browsers). Only add ip_ranges for providers
 #   with dedicated IPs. Do NOT add ranges for CDN-backed providers - shared
 #   IPs cause false positives.
 # Please include a source link (docs_url) for any hostname you add.
@@ -1473,7 +1473,7 @@ Hard problems to solve in Phase 5:
 
 - **IP range matching only covers providers with dedicated IP space.** Providers behind shared CDNs (OpenAI, Claude, Cursor, Copilot, Gemini) cannot be detected via IP matching without causing false positives. Currently only the Anthropic API (`api.anthropic.com`) has a known dedicated range (`160.79.104.0/23`).
 
-- **On Windows, DNS-based detection relies on the Windows DNS client service.** Browsers that use their own internal DoH resolver (Chrome, Firefox, Edge, Brave, and others) bypass the Windows DNS client entirely, so ETW DNS-Client events do not fire for those connections. CLI tools, SDKs, and desktop AI applications use the system DNS resolver and are detected normally.
+- **On Windows, DNS-based detection relies on the Windows DNS client service.** Applications that use their own internal DoH resolver, bypassing the OS DNS client, are invisible to ETW DNS-Client events. Currently this is primarily browsers (Chrome, Firefox, Edge, Brave) but the limitation applies to any application that implements DoH internally. CLI tools, SDKs, and desktop AI applications use the system DNS resolver and are detected normally.
 
 - **Ollama local model detection is not implemented.** The `ports` and `tls` fields in `providers.toml` are parsed but ignored. Connections to localhost on port 11434 without TLS cannot be detected via SNI. See DECISIONS.md for the planned TCP heuristic approach.
 
@@ -1537,7 +1537,7 @@ to install on machines that monitor network traffic.
 - Process attribution can have brief gaps under very high connection rates
 - Provider hostnames change occasionally; registry needs community maintenance
 - Requires root on Linux and macOS, elevated service permissions on Windows
-- Browsers using ECH (Encrypted Client Hello) hide the SNI hostname, and browsers using DoH (DNS over HTTPS) bypass UDP port 53 DNS capture. When both are active simultaneously (the default in Chrome, Firefox, Edge, and Brave), passive SNI and DNS detection produce no events for browser traffic. Anthropic API connections are partially recoverable via IP range matching. Full browser visibility requires MITM mode (Phase 5). CLI tools, SDKs, and desktop AI apps are unaffected.
+- ECH (Encrypted Client Hello) and DoH (DNS over HTTPS) are TLS and DNS privacy features that any application can implement. Applications using ECH hide the SNI hostname; applications using DoH bypass UDP port 53 DNS capture. When both are active simultaneously, passive detection produces no events. Browsers (Chrome, Firefox, Edge, Brave) are the primary current deployers of both features. Anthropic API connections are partially recoverable via IP range matching. Full visibility for ECH+DoH applications requires MITM mode (Phase 5). CLI tools, SDKs, and desktop AI apps do not currently implement ECH and are unaffected.
 
 ---
 

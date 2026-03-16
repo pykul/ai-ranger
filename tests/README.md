@@ -46,8 +46,14 @@ pytest tests/integration/ -v -m "network"
 ### Adding New Tests
 
 - Place integration tests in `tests/integration/`
+- Use typed API clients, not raw HTTP calls:
+  - `gateway_api` fixture — `GatewayAPI` with methods: `enroll()`, `ingest()`, `get_providers()`, `health()`
+  - `api_server` fixture — `APIServer` with methods: `fleet()`, `overview()`, `health()`, `create_token()`, etc.
+  - Raw `gateway_client` / `api_client` are available for edge cases (bad auth, malformed requests)
 - Use `enrolled_agent` fixture for tests that need a registered agent
 - Use helpers from `tests/integration/helpers/`:
+  - `gateway_api.py`: Typed gateway API client
+  - `api_server.py`: Typed Go API server client
   - `proto.py`: Build synthetic protobuf events
   - `wait.py`: Poll-with-timeout (never use `time.sleep()`)
   - `agent.py`: Manage real agent subprocess

@@ -2,6 +2,10 @@
 
 All fixtures use sync httpx clients to avoid async event loop conflicts
 between session-scoped and function-scoped fixtures in pytest-asyncio.
+
+Tests should use the typed API clients (gateway_api, api_server) rather
+than raw httpx clients. Raw clients are available for edge cases like
+testing malformed requests or missing auth.
 """
 
 import os
@@ -12,6 +16,9 @@ import uuid
 import clickhouse_connect
 import httpx
 import pytest
+
+from helpers.api_server import APIServer
+from helpers.gateway_api import GatewayAPI
 
 # -- Environment defaults (match .env.example for local dev) -------------------
 
@@ -73,20 +80,34 @@ def docker_stack():
     )
 
 
-# -- HTTP clients (sync to avoid event loop issues) ----------------------------
+# -- Raw HTTP clients ---------------------------------------------------------
 
 @pytest.fixture
 def gateway_client(docker_stack):
-    """Sync HTTP client for the gateway."""
+    """Raw sync HTTP client for the gateway. Prefer gateway_api for most tests."""
     with httpx.Client(base_url=GATEWAY_URL, timeout=10) as client:
         yield client
 
 
 @pytest.fixture
 def api_client(docker_stack):
-    """Sync HTTP client for the API server."""
+    """Raw sync HTTP client for the API server. Prefer api_server for most tests."""
     with httpx.Client(base_url=API_URL, timeout=10) as client:
         yield client
+
+
+# -- Typed API clients --------------------------------------------------------
+
+@pytest.fixture
+def gateway_api(gateway_client) -> GatewayAPI:
+    """Typed API client for the gateway. Use this for most tests."""
+    return GatewayAPI(gateway_client)
+
+
+@pytest.fixture
+def api_server(api_client) -> APIServer:
+    """Typed API client for the Go API server. Use this for most tests."""
+    return APIServer(api_client)
 
 
 # -- Database ------------------------------------------------------------------
@@ -102,22 +123,10 @@ def clickhouse_client(docker_stack):
 # -- Agent enrollment ----------------------------------------------------------
 
 @pytest.fixture
-def enrolled_agent(gateway_client):
+def enrolled_agent(gateway_api):
     """Enroll a fresh test agent. Returns dict with agent_id and org_id."""
     agent_id = str(uuid.uuid4())
-    resp = gateway_client.post(
-        "/v1/agents/enroll",
-        json={
-            "token": SEED_TOKEN,
-            "agent_id": agent_id,
-            "hostname": "test-host",
-            "os_username": "test-user",
-            "os": "linux",
-            "agent_version": "0.1.0-test",
-        },
-    )
-    assert resp.status_code == 200, f"Enrollment failed: {resp.text}"
-    data = resp.json()
+    data = gateway_api.enroll(token=SEED_TOKEN, agent_id=agent_id)
     yield {"agent_id": agent_id, "org_id": data["org_id"]}
 
 

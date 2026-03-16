@@ -7,21 +7,14 @@ from helpers.proto import encode_batch, make_test_batch, make_test_event
 from helpers.wait import wait_for_condition
 
 
-def test_rabbitmq_queue_drains(gateway_client, enrolled_agent):
+def test_rabbitmq_queue_drains(gateway_api, enrolled_agent):
     """After ingest, ranger.ingest queue depth returns to 0."""
     agent_id = enrolled_agent["agent_id"]
     event = make_test_event(agent_id)
     batch = make_test_batch(agent_id, [event])
     body = encode_batch(batch)
 
-    resp = gateway_client.post(
-        "/v1/ingest",
-        content=body,
-        headers={
-            "Content-Type": "application/x-protobuf",
-            "Authorization": f"Bearer {agent_id}",
-        },
-    )
+    resp = gateway_api.ingest(agent_id, body)
     assert resp.status_code == 200
 
     def queue_is_drained() -> bool:
@@ -37,24 +30,16 @@ def test_rabbitmq_queue_drains(gateway_client, enrolled_agent):
     wait_for_condition(queue_is_drained, timeout_secs=15, description="ranger.ingest queue drain")
 
 
-def test_dead_letter_queue_empty(gateway_client, enrolled_agent):
+def test_dead_letter_queue_empty(gateway_api, enrolled_agent):
     """After successful ingest, ranger.dlq has zero messages."""
     agent_id = enrolled_agent["agent_id"]
     event = make_test_event(agent_id)
     batch = make_test_batch(agent_id, [event])
     body = encode_batch(batch)
 
-    resp = gateway_client.post(
-        "/v1/ingest",
-        content=body,
-        headers={
-            "Content-Type": "application/x-protobuf",
-            "Authorization": f"Bearer {agent_id}",
-        },
-    )
+    resp = gateway_api.ingest(agent_id, body)
     assert resp.status_code == 200
 
-    # Wait for processing to complete
     def queue_processed() -> bool:
         r = httpx.get(
             f"{RABBITMQ_MGMT_URL}/api/queues/%2F/ranger.ingest",

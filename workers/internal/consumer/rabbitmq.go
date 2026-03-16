@@ -4,7 +4,6 @@ package consumer
 import (
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/pykul/ai-ranger/workers/internal/constants"
@@ -16,22 +15,14 @@ import (
 	rangerpb "github.com/pykul/ai-ranger/proto/gen/go/ranger/v1"
 )
 
-// Default RabbitMQ URL matches docker-compose.yml.
-const defaultRabbitMQURL = "amqp://guest:guest@localhost:5672/"
-
 // connectRetryIntervalSecs is the delay between RabbitMQ connection attempts.
 const connectRetryIntervalSecs = 3
 
 // Start connects to RabbitMQ and consumes from the ingest queue.
-// Each message is deserialized as an EventBatch and passed to the writer.
-// Retries the connection up to MaxRetryCount times on initial failure.
+// The AMQP URL comes from config.Config, not from environment variables directly.
+// Retries the connection up to constants.MaxRetries times on initial failure.
 // Blocks until the channel is closed or an error occurs.
-func Start(w *writer.Writer) error {
-	url := os.Getenv("RABBITMQ_URL")
-	if url == "" {
-		url = defaultRabbitMQURL
-	}
-
+func Start(url string, w *writer.Writer) error {
 	var conn *amqp.Connection
 	var err error
 	for attempt := 0; attempt <= constants.MaxRetries; attempt++ {

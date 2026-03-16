@@ -1544,6 +1544,108 @@ to install on machines that monitor network traffic.
 
 ---
 
+## Configuration and Secrets
+
+All runtime configuration comes from environment variables. No hardcoded hostnames,
+ports, credentials, or secrets exist in application code. The `.env.example` file at
+the repo root documents every variable with comments and safe local development defaults.
+
+**Python gateway:** Uses `pydantic-settings` with a `Settings` class in `gateway/config.py`.
+All environment variables are typed, validated at startup, and injected via FastAPI
+dependency injection. No `os.environ` calls elsewhere in the codebase.
+
+**Go workers:** Uses a `Config` struct in `workers/internal/config/config.go` loaded
+via `config.Load()` at startup in each `main.go`. The struct is passed to all components.
+No `os.Getenv` calls outside the config package.
+
+**Docker Compose:** The `docker/docker-compose.yml` file references variables from `../.env`
+via `env_file` and `${VAR}` interpolation. No credentials are hardcoded in the compose file.
+
+### Environment Variables by Service
+
+**All services:**
+
+| Variable | Description |
+|----------|-------------|
+| `SHUTDOWN_TIMEOUT_SECS` | Graceful shutdown timeout in seconds (default: 30) |
+
+**Gateway:**
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | SQLAlchemy async Postgres URL |
+| `RABBITMQ_URL` | AMQP connection URL |
+| `GATEWAY_PORT` | Listen port (default: 8080) |
+| `PROVIDERS_TOML_PATH` | Path to providers.toml (default: `providers/providers.toml`) |
+| `ENVIRONMENT` | `development` enables seed data (default: `production`) |
+| `SEED_TOKEN` | Plaintext token to seed (only in development) |
+
+**Workers (ingest + API):**
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | GORM Postgres DSN |
+| `CLICKHOUSE_ADDR` | ClickHouse native protocol address (default: `localhost:9000`) |
+| `CLICKHOUSE_DATABASE` | ClickHouse database name (default: `default`) |
+| `RABBITMQ_URL` | AMQP connection URL (ingest only) |
+| `API_SERVER_PORT` | API server listen port (default: 8081) |
+
+**Infrastructure (Docker Compose):**
+
+| Variable | Description |
+|----------|-------------|
+| `POSTGRES_USER` | Postgres superuser name |
+| `POSTGRES_PASSWORD` | Postgres superuser password |
+| `POSTGRES_DB` | Postgres database name |
+| `RABBITMQ_DEFAULT_USER` | RabbitMQ default user (read natively by the image) |
+| `RABBITMQ_DEFAULT_PASS` | RabbitMQ default password |
+
+### Mapping to Kubernetes
+
+For k8s deployments, map non-sensitive variables to ConfigMaps and credentials to
+Secrets. See `k8s/README.md` for complete deployment guidance including probe
+configuration, replica guidance, and Secret manifests.
+
+---
+
+## Health Checks
+
+Every HTTP service exposes `GET /health` returning `200 OK` with no authentication
+required. These endpoints are used by Docker Compose health checks and translate
+directly to Kubernetes readiness and liveness probes.
+
+| Service | Endpoint | Response |
+|---------|----------|----------|
+| Gateway | `GET http://localhost:8080/health` | `{"status": "ok", "service": "gateway"}` |
+| API Server | `GET http://localhost:8081/health` | `{"status": "ok", "service": "api"}` |
+| Postgres | `pg_isready -U $POSTGRES_USER` | Exit code 0 |
+| ClickHouse | `clickhouse-client --query 'SELECT 1'` | Exit code 0 |
+| RabbitMQ | `rabbitmq-diagnostics -q ping` | Exit code 0 |
+
+The ingest worker has no HTTP server. Its health is inferred from process liveness —
+it exits on fatal errors and Docker restarts it via `restart: unless-stopped`.
+
+---
+
+## Kubernetes Compatibility
+
+All backend services are designed to be k8s-compatible without modification:
+
+- **Stateless pods.** Gateway, ingest-worker, and api-server store no local state.
+  They can be scaled horizontally and restarted at any time.
+- **Config from environment.** All runtime configuration comes from environment
+  variables, mapping naturally to k8s ConfigMaps and Secrets.
+- **Health endpoints.** Gateway and api-server expose `GET /health` for readiness
+  and liveness probes.
+- **Graceful shutdown.** All services handle SIGTERM and drain in-flight work
+  within `SHUTDOWN_TIMEOUT_SECS`. Set `terminationGracePeriodSeconds` to match.
+- **No host filesystem dependencies.** Docker images are self-contained. The
+  gateway bundles providers.toml in the image; it is not required as a volume mount.
+
+See `k8s/README.md` for complete deployment guidance.
+
+---
+
 ## Starting Point for Claude Code Sessions
 
 **Always begin a new session with:**

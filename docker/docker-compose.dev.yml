@@ -6,6 +6,9 @@
 services:
 
   gateway:
+    env_file: ../.env
+    environment:
+      ENVIRONMENT: "development"
     volumes:
       - ../gateway:/app
       - ../proto/gen/python:/app/proto
@@ -13,6 +16,7 @@ services:
       sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8080 --reload"
 
   ingest-worker:
+    env_file: ../.env
     volumes:
       - ../workers:/app
       - ../proto/gen/go:/proto/gen/go
@@ -22,6 +26,7 @@ services:
       -command="/tmp/ingest-worker" -directory="." -graceful-kill=true
 
   api-server:
+    env_file: ../.env
     volumes:
       - ../workers:/app
       - ../proto/gen/go:/proto/gen/go

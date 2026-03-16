@@ -11,5 +11,8 @@ __pycache__/
 # Go
 workers/bin/
 
+# Secrets — never commit the actual .env file (.env.example is committed)
+.env
+
 # Docker
 gateway/.dockerignore

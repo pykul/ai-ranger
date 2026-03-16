@@ -1,5 +1,5 @@
-COMPOSE         := docker compose -f docker-compose.yml
-COMPOSE_DEV     := docker compose -f docker-compose.yml -f docker-compose.dev.yml
+COMPOSE         := docker compose --env-file ../.env -f docker-compose.yml
+COMPOSE_DEV     := docker compose --env-file ../.env -f docker-compose.yml -f docker-compose.dev.yml
 
 .PHONY: up dev down logs reset ps build
 
@@ -8,14 +8,14 @@ up:                ## Start full stack (production-like)
 	@echo ""
 	@echo "Gateway Swagger UI:  http://localhost:8080/docs"
 	@echo "Go API Swagger UI:   http://localhost:8081/docs"
-	@echo "RabbitMQ Management: http://localhost:15672 (ranger/ranger)"
+	@echo "RabbitMQ Management: http://localhost:15672 (credentials from .env)"
 
 dev:               ## Start full stack with dev overrides (source mounts, hot reload)
 	$(COMPOSE_DEV) up
 	@echo ""
 	@echo "Gateway Swagger UI:  http://localhost:8080/docs"
 	@echo "Go API Swagger UI:   http://localhost:8081/docs"
-	@echo "RabbitMQ Management: http://localhost:15672 (ranger/ranger)"
+	@echo "RabbitMQ Management: http://localhost:15672 (credentials from .env)"
 
 down:              ## Stop all services
 	$(COMPOSE) down

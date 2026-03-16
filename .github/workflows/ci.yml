@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: [main, "phase*"]
   pull_request:
 
 # Cancel in-progress runs for the same branch/PR
@@ -111,54 +113,118 @@ jobs:
             throw "No provider event detected in agent output"
           }
 
+  # ── Proto generation ───────────────────────────────────────────────────
+  proto:
+    name: Proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Install protoc-gen-go
+        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+
+      - name: Install grpcio-tools
+        run: pip install grpcio-tools
+
+      - name: Run make proto
+        run: make proto
+
+      - name: Verify generated code is up to date
+        run: git diff --exit-code proto/gen/
+
   # ── Gateway (Python) ─────────────────────────────────────────────────────
-  # Uncomment when gateway/ is created (Phase 2)
-  #
-  # gateway:
-  #   name: Gateway (Python)
-  #   runs-on: ubuntu-latest
-  #   defaults:
-  #     run:
-  #       working-directory: gateway
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #
-  #     - uses: actions/setup-python@v5
-  #       with:
-  #         python-version: "3.12"
-  #         cache: pip
-  #         cache-dependency-path: gateway/requirements.txt
-  #
-  #     - name: Install dependencies
-  #       run: pip install -r requirements.txt
-  #
-  #     - name: Lint
-  #       run: make lint
-  #
-  #     - name: Test
-  #       run: make test
+  gateway:
+    name: Gateway
+    needs: [proto]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: gateway/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verify app loads
+        run: python -c "from main import app; print('Gateway app loaded OK')"
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Type check (mypy)
+        run: mypy . --ignore-missing-imports
+        continue-on-error: true
+
+      - name: Test
+        run: |
+          if [ -d tests ]; then
+            pytest tests/ -v
+          else
+            echo "No tests directory found — skipping"
+          fi
 
   # ── Workers (Go) ─────────────────────────────────────────────────────────
-  # Uncomment when workers/ is created (Phase 2)
-  #
-  # workers:
-  #   name: Workers (Go)
-  #   runs-on: ubuntu-latest
-  #   defaults:
-  #     run:
-  #       working-directory: workers
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #
-  #     - uses: actions/setup-go@v5
-  #       with:
-  #         go-version-file: workers/go.mod
-  #
-  #     - name: Lint
-  #       run: make lint
-  #
-  #     - name: Test
-  #       run: make test
+  workers:
+    name: Workers
+    needs: [proto]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin
+
+      - name: Lint
+        run: $(go env GOPATH)/bin/golangci-lint run ./...
+        continue-on-error: true
+
+      - name: Test
+        run: go test ./... -v
+
+  # ── Docker Compose validate ──────────────────────────────────────────────
+  compose-validate:
+    name: Docker Compose Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env from example
+        run: cp .env.example .env
+
+      - name: Validate docker-compose.yml
+        run: docker compose --env-file .env -f docker/docker-compose.yml config --quiet
 
   # ── Dashboard (React/TypeScript) ─────────────────────────────────────────
   # Uncomment when dashboard/ is created (Phase 3)

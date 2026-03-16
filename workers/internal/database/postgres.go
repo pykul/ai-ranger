@@ -3,14 +3,10 @@ package database
 
 import (
 	"fmt"
-	"os"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
-
-// PostgresDSN default matches docker-compose.yml postgres service.
-const defaultPostgresDSN = "host=localhost port=5432 user=ranger password=ranger dbname=ranger sslmode=disable"
 
 // MaxOpenConns is the maximum number of open connections in the pool.
 const MaxOpenConns = 10
@@ -18,14 +14,9 @@ const MaxOpenConns = 10
 // MaxIdleConns is the maximum number of idle connections in the pool.
 const MaxIdleConns = 5
 
-// ConnectPostgres opens a GORM connection to Postgres.
-// Reads DATABASE_URL from the environment, falling back to the local default.
-func ConnectPostgres() (*gorm.DB, error) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		dsn = defaultPostgresDSN
-	}
-
+// ConnectPostgres opens a GORM connection to Postgres using the provided DSN.
+// The DSN comes from config.Config, not from environment variables directly.
+func ConnectPostgres(dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("connect postgres: %w", err)

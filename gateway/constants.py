@@ -1,7 +1,10 @@
-"""Named constants for the AI Ranger gateway.
+"""Application contract constants for the AI Ranger gateway.
 
-Every route path, queue name, exchange name, and configuration key lives here.
-No magic strings anywhere else in the gateway codebase.
+Route paths, queue names, exchange names, header names, and protocol values.
+These are application contracts — they do not change between environments.
+
+Runtime configuration (hosts, ports, credentials, timeouts) lives in config.py
+and is loaded from environment variables via pydantic-settings.
 """
 
 # -- API route paths -------------------------------------------------------
@@ -14,6 +17,9 @@ ROUTE_ENROLL = "/v1/agents/enroll"
 
 ROUTE_PROVIDERS = "/v1/agents/providers"
 """GET: serve the latest providers.toml."""
+
+ROUTE_HEALTH = "/health"
+"""GET: health check endpoint for readiness/liveness probes."""
 
 # -- RabbitMQ --------------------------------------------------------------
 
@@ -38,13 +44,3 @@ CONTENT_TYPE_PROTOBUF = "application/x-protobuf"
 
 TOKEN_HASH_ALGORITHM = "sha256"
 """Algorithm used to hash enrollment tokens before storage."""
-
-# -- Providers file --------------------------------------------------------
-
-PROVIDERS_TOML_PATH = "providers/providers.toml"
-"""Path to the community provider registry, relative to the repo root."""
-
-# -- Server ----------------------------------------------------------------
-
-GATEWAY_PORT = 8080
-"""Default port for the gateway server."""

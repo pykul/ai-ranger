@@ -648,3 +648,55 @@ for macOS and SIO_RCVALL for Windows) increasing maintenance surface, and the ke
 version requirement (4.18+ minimum, 5.x+ for portable binaries via CO-RE) would exclude
 some deployment targets. Revisit if Linux performance or privilege requirements become
 a real pain point in production.
+
+---
+
+## Phase 2 Hardening Decisions
+
+### pydantic-settings for Python configuration management
+
+The gateway uses `pydantic-settings` with a `Settings` class in `gateway/config.py`
+for all environment variable loading. Alternatives considered:
+
+- **Scattered `os.environ.get()` calls**: rejected because they are not type-checked,
+  validation happens at call time (not startup), and the same default value gets
+  duplicated across files.
+- **python-decouple or environs**: rejected because pydantic-settings integrates
+  naturally with FastAPI's dependency injection, provides type coercion and validation
+  at startup, and the team already depends on pydantic for request models.
+- **A plain dataclass**: rejected because it would require manual validation code
+  that pydantic-settings provides for free.
+
+The Go workers use a `Config` struct in `workers/internal/config/config.go` loaded
+via `config.Load()` at startup. The struct is passed to all components. No
+`os.Getenv` calls exist outside the config package. This is the idiomatic Go approach
+— explicit dependency passing rather than global lookups.
+
+### k8s-ready design decisions
+
+All backend services were designed to be Kubernetes-compatible from the start, even
+though k8s manifests are not yet provided. The specific decisions:
+
+- **Stateless application pods**: no local state, no session affinity required.
+  Gateway, ingest-worker, and api-server can be scaled horizontally.
+- **All config from environment variables**: maps naturally to k8s ConfigMaps and
+  Secrets. No config files need to be mounted at runtime.
+- **Health endpoints**: `GET /health` on gateway (8080) and api-server (8081) for
+  readiness and liveness probes. Returns 200 with no auth.
+- **Graceful SIGTERM handling**: all services drain in-flight work within a
+  configurable timeout (`SHUTDOWN_TIMEOUT_SECS`, default 30s).
+- **No host filesystem dependencies**: Docker images are self-contained.
+
+These decisions add zero complexity to the Docker Compose setup but make the
+eventual k8s migration straightforward.
+
+### .env.example committed, .env gitignored
+
+`.env.example` is committed to the repo with safe local development defaults and
+documentation for every variable. `.env` (the actual file with real credentials)
+is in `.gitignore` and must never be committed.
+
+This is the standard approach for open source projects with credentials:
+contributors can `cp .env.example .env` and immediately have a working local
+environment, while production credentials are never exposed in version control.
+Docker Compose loads `.env` automatically via the `env_file` directive.

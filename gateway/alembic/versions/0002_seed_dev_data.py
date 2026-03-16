@@ -4,9 +4,12 @@ Revision ID: 0002
 Revises: 0001
 Create Date: 2026-03-16
 
-Only inserts data when ENVIRONMENT=development (the default in docker-compose).
-The plaintext token is: tok_test_dev
-SHA256 hash: stored below as TOKEN_HASH.
+Only inserts data when ENVIRONMENT=development AND SEED_TOKEN is set.
+The SEED_TOKEN value is hashed with SHA256 before storage.
+If SEED_TOKEN is not set, the migration completes without inserting anything.
+
+For local development, .env.example sets SEED_TOKEN=tok_test_dev.
+Production environments must NOT set SEED_TOKEN.
 """
 import hashlib
 import os
@@ -20,9 +23,6 @@ down_revision: Union[str, None] = "0001"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# Plaintext: tok_test_dev
-TOKEN_HASH = hashlib.sha256(b"tok_test_dev").hexdigest()
-
 ORG_ID = "00000000-0000-0000-0000-000000000001"
 TOKEN_ID = "00000000-0000-0000-0000-000000000002"
 
@@ -30,6 +30,12 @@ TOKEN_ID = "00000000-0000-0000-0000-000000000002"
 def upgrade() -> None:
     if os.environ.get("ENVIRONMENT") != "development":
         return
+
+    seed_token = os.environ.get("SEED_TOKEN")
+    if not seed_token:
+        return
+
+    token_hash = hashlib.sha256(seed_token.encode()).hexdigest()
 
     op.execute(
         sa.text(
@@ -47,7 +53,7 @@ def upgrade() -> None:
         ).bindparams(
             tok_id=TOKEN_ID,
             org_id=ORG_ID,
-            token_hash=TOKEN_HASH,
+            token_hash=token_hash,
             label="Development token (unlimited uses)",
             max_uses=2147483647,
             used_count=0,

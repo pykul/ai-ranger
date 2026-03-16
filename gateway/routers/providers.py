@@ -9,12 +9,10 @@ import os
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import PlainTextResponse
 
-from constants import ROUTE_PROVIDERS, PROVIDERS_TOML_PATH
+from config import get_settings
+from constants import ROUTE_PROVIDERS
 
 router = APIRouter()
-
-# Resolve path relative to the repo root (one level up from gateway/).
-_PROVIDERS_FILE = os.path.join(os.path.dirname(__file__), "..", "..", PROVIDERS_TOML_PATH)
 
 
 @router.get(
@@ -30,12 +28,19 @@ _PROVIDERS_FILE = os.path.join(os.path.dirname(__file__), "..", "..", PROVIDERS_
 )
 async def get_providers() -> PlainTextResponse:
     """Serve providers.toml as plain text."""
-    path = os.path.normpath(_PROVIDERS_FILE)
-    if not os.path.isfile(path):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="providers.toml not found.",
-        )
-    with open(path) as f:
-        content = f.read()
-    return PlainTextResponse(content)
+    settings = get_settings()
+    # Resolve relative to the gateway working directory, then try repo root.
+    candidates = [
+        settings.providers_toml_path,
+        os.path.join(os.path.dirname(__file__), "..", "..", settings.providers_toml_path),
+    ]
+    for candidate in candidates:
+        path = os.path.normpath(candidate)
+        if os.path.isfile(path):
+            with open(path) as f:
+                return PlainTextResponse(f.read())
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="providers.toml not found.",
+    )

@@ -80,6 +80,47 @@ your developers are already using, without getting in the way.
 
 ---
 
+## Prerequisites
+
+To build and develop AI Ranger, you need the following tools:
+
+| Tool | Minimum Version | Purpose |
+|------|----------------|---------|
+| Docker + Docker Compose | Docker 24+ | Running the full backend stack |
+| Rust (via rustup) | 1.75+ (see `agent/Cargo.toml`) | Building the agent |
+| Go | 1.22+ (see `workers/go.mod`) | Building the workers |
+| Python | 3.12+ | Running the gateway |
+| protoc | 3.0+ | Regenerating protobuf code (only when changing `.proto` files) |
+
+Run the install script for your OS:
+
+```bash
+# macOS
+bash scripts/install-deps/macos.sh
+
+# Linux (Debian/Ubuntu or Fedora/RHEL)
+bash scripts/install-deps/linux.sh
+
+# Windows (run as Administrator)
+powershell -ExecutionPolicy Bypass -File scripts/install-deps/windows.ps1
+```
+
+### Verify your setup
+
+```bash
+docker --version          # Docker version 24+
+docker compose version    # Docker Compose version 2+
+rustc --version           # rustc 1.75+
+go version                # go1.22+
+python3 --version         # Python 3.12+
+protoc --version          # libprotoc 3+
+```
+
+All commands should return version numbers. If any tool is missing, re-run the
+install script or install it manually.
+
+---
+
 ## Installation
 
 ### Downloading the agent

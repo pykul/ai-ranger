@@ -5,10 +5,12 @@
 #   docker compose down            # stop all services
 #   docker compose logs -f         # tail all logs
 #
+# All credentials and configuration come from ../.env (see .env.example).
+#
 # After startup:
 #   Gateway Swagger UI:  http://localhost:8080/docs
 #   Go API Swagger UI:   http://localhost:8081/docs
-#   RabbitMQ Management: http://localhost:15672 (guest/guest)
+#   RabbitMQ Management: http://localhost:15672
 
 services:
 
@@ -17,26 +19,31 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ranger
-      POSTGRES_PASSWORD: ranger
-      POSTGRES_DB: ranger
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     # No init.sql - Postgres schema managed by Alembic migrations.
     # Gateway runs `alembic upgrade head` before starting uvicorn.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ranger"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
       timeout: 3s
       retries: 5
+    # Resource suggestions (translate to k8s requests/limits):
+    # deploy:
+    #   resources:
+    #     limits: { cpus: "1", memory: "512M" }
+    #     reservations: { cpus: "0.25", memory: "128M" }
 
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
     ports:
       - "8123:8123"   # HTTP interface
-      - "9000:9000"   # Native protocol
+      - "${CLICKHOUSE_PORT:-9000}:9000"   # Native protocol
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -45,9 +52,18 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    # Resource suggestions:
+    # deploy:
+    #   resources:
+    #     limits: { cpus: "2", memory: "1G" }
+    #     reservations: { cpus: "0.5", memory: "256M" }
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    # User credentials are defined in rabbitmq/definitions.json (loaded by management plugin).
+    # RABBITMQ_DEFAULT_USER/RABBITMQ_DEFAULT_PASS env vars are NOT used here because they
+    # conflict with the definitions import. The RABBITMQ_URL env var on gateway and workers
+    # must match the credentials in definitions.json.
     ports:
       - "5672:5672"    # AMQP
       - "15672:15672"  # Management UI
@@ -59,6 +75,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    # Resource suggestions:
+    # deploy:
+    #   resources:
+    #     limits: { cpus: "1", memory: "512M" }
+    #     reservations: { cpus: "0.25", memory: "128M" }
 
   # -- Application services ------------------------------------------------
 
@@ -67,11 +88,11 @@ services:
       context: ..
       dockerfile: gateway/Dockerfile
     ports:
-      - "8080:8080"
+      - "${GATEWAY_PORT:-8080}:8080"
+    env_file: ../.env
     environment:
-      DATABASE_URL: "postgresql+asyncpg://ranger:ranger@postgres:5432/ranger"
-      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
-      ENVIRONMENT: "development"
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"
+      RABBITMQ_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/"
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,6 +101,17 @@ services:
     # Run Alembic migrations then start uvicorn. Single command, no entrypoint script.
     command: >
       sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    # Resource suggestions:
+    # deploy:
+    #   resources:
+    #     limits: { cpus: "1", memory: "256M" }
+    #     reservations: { cpus: "0.25", memory: "64M" }
 
   ingest-worker:
     build:
@@ -87,10 +119,11 @@ services:
       dockerfile: workers/Dockerfile
       target: ingest
     restart: unless-stopped
+    env_file: ../.env
     environment:
-      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
-      CLICKHOUSE_ADDR: "clickhouse:9000"
-      DATABASE_URL: "host=postgres port=5432 user=ranger password=ranger dbname=ranger sslmode=disable"
+      RABBITMQ_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/"
+      CLICKHOUSE_ADDR: "${CLICKHOUSE_HOST:-clickhouse}:${CLICKHOUSE_PORT:-9000}"
+      DATABASE_URL: "host=postgres port=${POSTGRES_PORT:-5432} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB} sslmode=disable"
     depends_on:
       postgres:
         condition: service_healthy
@@ -98,6 +131,11 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    # Resource suggestions:
+    # deploy:
+    #   resources:
+    #     limits: { cpus: "1", memory: "256M" }
+    #     reservations: { cpus: "0.25", memory: "64M" }
 
   api-server:
     build:
@@ -105,15 +143,27 @@ services:
       dockerfile: workers/Dockerfile
       target: api
     ports:
-      - "8081:8081"
+      - "${API_SERVER_PORT:-8081}:8081"
+    env_file: ../.env
     environment:
-      CLICKHOUSE_ADDR: "clickhouse:9000"
-      DATABASE_URL: "host=postgres port=5432 user=ranger password=ranger dbname=ranger sslmode=disable"
+      CLICKHOUSE_ADDR: "${CLICKHOUSE_HOST:-clickhouse}:${CLICKHOUSE_PORT:-9000}"
+      DATABASE_URL: "host=postgres port=${POSTGRES_PORT:-5432} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB} sslmode=disable"
     depends_on:
       postgres:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # Resource suggestions:
+    # deploy:
+    #   resources:
+    #     limits: { cpus: "1", memory: "256M" }
+    #     reservations: { cpus: "0.25", memory: "64M" }
 
 volumes:
   postgres-data:

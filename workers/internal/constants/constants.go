@@ -1,7 +1,10 @@
-// Package constants defines all named constants for the AI Ranger workers.
+// Package constants defines application contract constants for the AI Ranger workers.
 //
-// Every queue name, table name, route path, timeout, and batch size lives here.
-// No magic strings anywhere else in the workers codebase.
+// Queue names, table names, route paths, and protocol values live here.
+// These are application contracts — they do not change between environments.
+//
+// Runtime configuration (hosts, ports, credentials, timeouts) lives in
+// config.Config and is loaded from environment variables at startup.
 package constants
 
 // -- RabbitMQ -----------------------------------------------------------------
@@ -53,18 +56,13 @@ const RouteAdminTokensDelete = "/v1/admin/tokens/{id}"
 // RouteAdminAgentsDelete revokes an agent.
 const RouteAdminAgentsDelete = "/v1/admin/agents/{id}"
 
-// -- Server -------------------------------------------------------------------
+// RouteHealth is the health check endpoint for readiness/liveness probes.
+const RouteHealth = "/health"
 
-// APIServerPort is the default port for the Go query API server.
-const APIServerPort = 8081
-
-// -- Retry/timeout ------------------------------------------------------------
+// -- Retry --------------------------------------------------------------------
 
 // ConsumerPrefetchCount is the number of messages to prefetch from RabbitMQ.
 const ConsumerPrefetchCount = 10
 
 // MaxRetries is the number of times to retry a failed operation (e.g. RabbitMQ connect).
 const MaxRetries = 10
-
-// GracefulShutdownTimeout is how long to wait for in-flight work before force-stopping.
-const GracefulShutdownTimeout = 10 // seconds

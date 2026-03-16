@@ -14,7 +14,7 @@ OpenAPI spec: http://localhost:8080/openapi.json
 
 from fastapi import FastAPI
 
-from routers import ingest, enroll, providers
+from routers import health, ingest, enroll, providers
 
 app = FastAPI(
     title="AI Ranger Gateway",
@@ -25,6 +25,7 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+app.include_router(health.router, tags=["Health"])
 app.include_router(ingest.router, tags=["Ingest"])
 app.include_router(enroll.router, tags=["Enrollment"])
 app.include_router(providers.router, tags=["Providers"])

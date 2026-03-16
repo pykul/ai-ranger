@@ -1,6 +1,7 @@
 """Alembic environment configuration for async SQLAlchemy.
 
 Imports all ORM models so Alembic can autogenerate migrations.
+Database URL comes from the Settings class in config.py.
 """
 
 import asyncio
@@ -12,7 +13,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
-# Ensure the gateway root is on sys.path so models are importable
+# Ensure the gateway root is on sys.path so models and config are importable
 # when alembic is invoked from a different working directory.
 _gateway_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _gateway_dir not in sys.path:
@@ -24,23 +25,22 @@ from models.org import Organization  # noqa: F401
 from models.token import EnrollmentToken  # noqa: F401
 from models.agent import Agent  # noqa: F401
 
-config = context.config
+from config import get_settings
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+alembic_config = context.config
+
+if alembic_config.config_file_name is not None:
+    fileConfig(alembic_config.config_file_name)
 
 target_metadata = Base.metadata
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql+asyncpg://ranger:ranger@localhost:5432/ranger",
-)
+_settings = get_settings()
 
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode -- emit SQL to stdout."""
     context.configure(
-        url=DATABASE_URL,
+        url=_settings.database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -58,7 +58,7 @@ def do_run_migrations(connection) -> None:
 
 async def run_migrations_online() -> None:
     """Run migrations in 'online' mode with an async engine."""
-    connectable = create_async_engine(DATABASE_URL, poolclass=pool.NullPool)
+    connectable = create_async_engine(_settings.database_url, poolclass=pool.NullPool)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

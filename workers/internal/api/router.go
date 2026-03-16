@@ -22,6 +22,9 @@ func NewRouter(pg *gorm.DB, ch clickhouse.Conn) chi.Router {
 	chStore := store.NewClickHouseStore(ch)
 	pgStore := store.NewPostgresStore(pg)
 
+	// Health check — no auth, used by Docker and k8s probes
+	r.Get(constants.RouteHealth, healthCheck())
+
 	// Swagger UI at /docs/*
 	r.Get("/docs/*", httpSwagger.WrapHandler)
 

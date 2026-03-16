@@ -3,26 +3,17 @@ package database
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
-// Default ClickHouse address matches docker-compose.yml clickhouse service.
-const defaultClickHouseAddr = "localhost:9000"
-
 // ConnectClickHouse opens a connection to ClickHouse via the native protocol.
-// Reads CLICKHOUSE_ADDR from the environment, falling back to the local default.
-func ConnectClickHouse() (clickhouse.Conn, error) {
-	addr := os.Getenv("CLICKHOUSE_ADDR")
-	if addr == "" {
-		addr = defaultClickHouseAddr
-	}
-
+// Address and database name come from config.Config, not from environment variables directly.
+func ConnectClickHouse(addr, database string) (clickhouse.Conn, error) {
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{addr},
 		Auth: clickhouse.Auth{
-			Database: "default",
+			Database: database,
 		},
 	})
 	if err != nil {

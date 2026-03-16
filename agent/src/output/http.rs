@@ -1,17 +1,24 @@
 use crate::event::AiConnectionEvent;
 use crate::output::sink::EventSink;
+use crate::proto::ranger_v1;
 use async_trait::async_trait;
+use prost::Message;
 use tokio::sync::Mutex;
 
 /// Default number of events to buffer before flushing to the HTTP backend.
 /// 100 balances memory usage against the overhead of small HTTP requests.
 pub(crate) const DEFAULT_HTTP_BATCH_SIZE: usize = 100;
 
+/// Content-Type header value for protobuf payloads.
+const CONTENT_TYPE_PROTOBUF: &str = "application/x-protobuf";
+
+/// Ingest endpoint path on the gateway.
+const INGEST_PATH: &str = "/v1/ingest";
+
 /// POST protobuf-encoded EventBatch to the gateway.
 /// Events are batched internally and flushed periodically or when flush() is called.
 ///
-/// Uses JSON encoding for now (Phase 1). Will switch to protobuf when prost
-/// and the proto/gen/rust types are wired in Phase 2.
+/// Encodes events as a protobuf EventBatch using prost-generated types.
 pub struct HttpSink {
     url: String,
     agent_id: String,
@@ -22,8 +29,9 @@ pub struct HttpSink {
 
 impl HttpSink {
     pub fn new(url: String, agent_id: String, batch_size: Option<usize>) -> Self {
+        let ingest_url = format!("{}{}", url.trim_end_matches('/'), INGEST_PATH);
         Self {
-            url,
+            url: ingest_url,
             agent_id,
             client: reqwest::Client::new(),
             batch: Mutex::new(Vec::new()),
@@ -38,11 +46,25 @@ impl HttpSink {
         if events.is_empty() {
             return Ok(());
         }
-        let body = serde_json::to_vec(events)?;
+
+        // Convert internal events to protobuf types and wrap in EventBatch.
+        let proto_events: Vec<ranger_v1::AiConnectionEvent> = events
+            .iter()
+            .map(ranger_v1::AiConnectionEvent::from)
+            .collect();
+
+        let batch = ranger_v1::EventBatch {
+            agent_id: self.agent_id.clone(),
+            sent_at_ms: chrono::Utc::now().timestamp_millis(),
+            events: proto_events,
+        };
+
+        let body = batch.encode_to_vec();
+
         let resp = self
             .client
             .post(&self.url)
-            .header("Content-Type", "application/json")
+            .header("Content-Type", CONTENT_TYPE_PROTOBUF)
             .bearer_auth(&self.agent_id)
             .body(body)
             .send()

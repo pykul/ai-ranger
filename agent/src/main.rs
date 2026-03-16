@@ -8,6 +8,7 @@ mod identity;
 mod output;
 mod pipeline;
 mod process;
+mod proto;
 
 use config::{AppConfig, OutputConfig};
 use event::AiConnectionEvent;
@@ -31,20 +32,52 @@ const PROVIDERS_FETCH_TIMEOUT_SECS: u64 = 10;
 #[derive(clap::Parser)]
 #[command(name = "ai-ranger", about = "Passive AI provider detection agent")]
 struct Cli {
+    /// Path to config.toml
     #[arg(long, default_value = "config.toml")]
     config: std::path::PathBuf,
+
+    /// Enroll and exit without capturing (for installer scripts).
+    /// For normal use, just pass --token and --backend to enroll and start in one step.
     #[arg(long)]
     enroll: bool,
+
+    /// Enrollment token. If provided with --backend, the agent enrolls on first run
+    /// and then starts capturing. If already enrolled, the flags are ignored.
     #[arg(long)]
     token: Option<String>,
+
+    /// Backend URL (e.g. http://localhost:8080). Required with --token for enrollment.
     #[arg(long)]
     backend: Option<String>,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let cli = <Cli as clap::Parser>::parse();
 
+    // Enrollment uses reqwest::blocking which creates its own runtime.
+    // Handle it before entering the tokio async runtime to avoid nesting.
+    // This covers both --enroll (exit after) and auto-enroll (continue to capture).
+    let needs_enrollment = cli.enroll || (cli.token.is_some() && cli.backend.is_some());
+    let pre_enrolled = if needs_enrollment {
+        let local = identity::config::config_dir().map(|d| d.join("providers.toml"));
+        classifier::providers::init_with_fetched(None, local.as_deref());
+
+        // resolve_identity exits the process if --enroll is set.
+        // For auto-enroll it returns the config so we can continue to capture.
+        identity::enroll::resolve_identity(cli.enroll, cli.token.as_deref(), cli.backend.as_deref())
+    } else {
+        None
+    };
+
+    // Normal operation: start the async runtime.
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build tokio runtime")
+        .block_on(async_main(cli, pre_enrolled));
+}
+
+async fn async_main(cli: Cli, pre_enrolled: Option<identity::config::AgentConfig>) {
     let app_config = AppConfig::load(&cli.config).unwrap_or_else(|e| {
         eprintln!("[ai-ranger] Warning: could not load config: {e}");
         AppConfig::default()
@@ -60,9 +93,9 @@ async fn main() {
     let local = identity::config::config_dir().map(|d| d.join("providers.toml"));
     classifier::providers::init_with_fetched(fetched.as_deref(), local.as_deref());
 
-    // Enrollment or identity loading (exits process if --enroll)
+    // Use pre-enrolled config if available, otherwise load from disk.
     let agent_config =
-        identity::enroll::load_or_enroll(cli.enroll, cli.token.as_deref(), cli.backend.as_deref());
+        pre_enrolled.or_else(|| identity::enroll::resolve_identity(false, None, None));
     let agent_id = agent_config
         .as_ref()
         .map(|c| c.agent_id.clone())

@@ -3,3 +3,17 @@ agent/target/
 .idea/
 .claude/
 PROJECT-EXPLANATION.md
+
+# Python
+__pycache__/
+*.pyc
+
+# Go
+workers/bin/
+
+# Secrets and local config — never commit
+.env
+config.toml
+
+# Docker
+gateway/.dockerignore

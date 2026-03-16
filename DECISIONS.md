@@ -62,17 +62,19 @@ a real project is the best way to do that.
 The Go argument was not wrong - it would have produced more contributors. The Rust
 decision was made with eyes open to that tradeoff.
 
-### Backend: Python (Flask) + Go, not Rust throughout
+### Backend: Python (FastAPI) + Go, not Rust throughout
 
 The backend follows a pattern from SentinelOne where the author previously worked: a
-thin Python/Flask gateway handles agent-facing ingest (auth, deserialize, enqueue) and
-Go workers handle everything else (async processing, storage writes, dashboard API).
+thin Python gateway handles agent-facing ingest (auth, deserialize, enqueue) and Go
+workers handle everything else (async processing, storage writes, dashboard API).
 
 Python was chosen for the gateway because it is battle-tested for this thin-gateway
-pattern and familiar to ops teams. Go was chosen for workers because goroutines handle
-the concurrent workload well and the ClickHouse and RabbitMQ client libraries are
-mature. The rule: no processing logic ever lives in Flask. The moment a database write
-or business logic appears in a Flask route, it belongs in Go.
+pattern and familiar to ops teams. FastAPI was chosen over Flask for its native async
+support, automatic OpenAPI/Swagger documentation from Pydantic type annotations, and
+built-in request validation. Go was chosen for workers because goroutines handle the
+concurrent workload well and the ClickHouse and RabbitMQ client libraries are mature.
+The rule: no processing logic ever lives in the gateway. The moment a database write
+or business logic appears in a FastAPI route, it belongs in Go.
 
 ### Wire format: Protobuf
 
@@ -83,9 +85,9 @@ Go workers), and adding a field to AiConnectionEvent is a single .proto change t
 propagates everywhere. The generated code for all three languages is committed to the
 repo so contributors do not need protoc installed.
 
-Note: the HttpSink currently sends JSON with a comment marking it for protobuf in
-Phase 2. The protobuf infrastructure is in place but the HTTP transport has not been
-switched yet.
+The HttpSink was switched from JSON to protobuf encoding in Phase 2. Events are
+serialized as a protobuf EventBatch using prost-generated types and sent with
+Content-Type: application/x-protobuf.
 
 ---
 
@@ -591,6 +593,48 @@ all narrowed from `pub` to `pub(crate)`.
 
 ---
 
+## Phase 2 Backend Decisions
+
+### ORMs for Postgres, plain SQL for ClickHouse
+
+All Postgres access uses ORMs. The Python gateway uses SQLAlchemy 2.0 async with Alembic
+for versioned migrations. The Go workers use GORM with struct tags for schema definition.
+Raw SQL against Postgres is not permitted except in Alembic migration files and GORM model
+definitions.
+
+Raw SQL was rejected for Postgres because schema changes become untracked and error-prone
+across environments. With Alembic, every schema change is a versioned migration file that
+runs automatically on startup. Contributors never need to manually apply SQL or wonder
+whether their local database matches production. GORM was chosen for Go because it is the
+idiomatic Go ORM and supports auto-migration for development.
+
+ClickHouse is the intentional exception. No mature ORM exists for ClickHouse in Go. The
+ClickHouse schema is append-only and rarely changes. The `clickhouse-go` driver with plain
+SQL and named query constants is the correct approach. The schema is defined in
+`docker/clickhouse/init.sql` and loaded on container startup.
+
+The SQLAlchemy models in `gateway/models/orm.py` are the source of truth for the Postgres
+schema. The GORM structs in `workers/internal/models/models.go` must mirror them exactly.
+
+### bytes_sent and bytes_received removed from ClickHouse schema
+
+The original DECISIONS.md entry for bytes_sent/bytes_received said "The ClickHouse schema
+retains the columns (migrations are expensive)." That reasoning applied to a hypothetical
+already-deployed schema. Since the ClickHouse schema is being created for the first time
+in Phase 2, there is no migration cost. The columns were removed from the initial schema.
+When TCP session tracking is implemented in a future phase, adding columns back is a
+trivial ALTER TABLE.
+
+### ClickHouse detection_method enum corrected
+
+The ClickHouse detection_method enum was `Enum8('sni'=1, 'dns'=2, 'tcp'=3)` which did not
+match the actual detection methods in the agent (Sni, Dns, IpRange, TcpHeuristic). The
+agent has used IpRange since Phase 1 and TcpHeuristic is reserved for future Ollama
+detection. The enum was corrected to `Enum8('sni'=1, 'dns'=2, 'ip_range'=3,
+'tcp_heuristic'=4)` to match reality.
+
+---
+
 ## Considered but Deferred
 
 ### eBPF for Linux packet capture
@@ -604,3 +648,91 @@ for macOS and SIO_RCVALL for Windows) increasing maintenance surface, and the ke
 version requirement (4.18+ minimum, 5.x+ for portable binaries via CO-RE) would exclude
 some deployment targets. Revisit if Linux performance or privilege requirements become
 a real pain point in production.
+
+---
+
+## Phase 2 Hardening Decisions
+
+### pydantic-settings for Python configuration management
+
+The gateway uses `pydantic-settings` with a `Settings` class in `gateway/config.py`
+for all environment variable loading. Alternatives considered:
+
+- **Scattered `os.environ.get()` calls**: rejected because they are not type-checked,
+  validation happens at call time (not startup), and the same default value gets
+  duplicated across files.
+- **python-decouple or environs**: rejected because pydantic-settings integrates
+  naturally with FastAPI's dependency injection, provides type coercion and validation
+  at startup, and the team already depends on pydantic for request models.
+- **A plain dataclass**: rejected because it would require manual validation code
+  that pydantic-settings provides for free.
+
+The Go workers use a `Config` struct in `workers/internal/config/config.go` loaded
+via `config.Load()` at startup. The struct is passed to all components. No
+`os.Getenv` calls exist outside the config package. This is the idiomatic Go approach
+— explicit dependency passing rather than global lookups.
+
+### k8s-ready design decisions
+
+All backend services were designed to be Kubernetes-compatible from the start, even
+though k8s manifests are not yet provided. The specific decisions:
+
+- **Stateless application pods**: no local state, no session affinity required.
+  Gateway, ingest-worker, and api-server can be scaled horizontally.
+- **All config from environment variables**: maps naturally to k8s ConfigMaps and
+  Secrets. No config files need to be mounted at runtime.
+- **Health endpoints**: `GET /health` on gateway (8080) and api-server (8081) for
+  readiness and liveness probes. Returns 200 with no auth.
+- **Graceful SIGTERM handling**: all services drain in-flight work within a
+  configurable timeout (`SHUTDOWN_TIMEOUT_SECS`, default 30s).
+- **No host filesystem dependencies**: Docker images are self-contained.
+
+These decisions add zero complexity to the Docker Compose setup but make the
+eventual k8s migration straightforward.
+
+### .env.example committed, .env gitignored
+
+`.env.example` is committed to the repo with safe local development defaults and
+documentation for every variable. `.env` (the actual file with real credentials)
+is in `.gitignore` and must never be committed.
+
+This is the standard approach for open source projects with credentials:
+contributors can `cp .env.example .env` and immediately have a working local
+environment, while production credentials are never exposed in version control.
+Docker Compose loads `.env` automatically via the `env_file` directive.
+
+### Separate Dockerfiles per Go service
+
+Each Go service (`cmd/ingest/` and `cmd/api/`) has its own Dockerfile rather than a
+single shared Dockerfile with multi-target stages. The build context is the repo root
+in both cases so shared `internal/` packages and `proto/gen/go` are accessible.
+
+This was chosen over the shared multi-target approach because:
+- Each service can be built, tagged, and pushed independently in CI.
+- Each image contains exactly one binary — no ambiguity about which binary runs.
+- In Kubernetes, each service maps to a separate Deployment with its own image,
+  scaling, and resource limits. Separate images are a prerequisite for this.
+- The shared `Dockerfile.dev` with CompileDaemon handles the dev hot-reload case
+  where both services need the Go toolchain.
+
+### Two-layer integration test strategy
+
+Integration tests use two layers: real agent tests first (highest confidence), with
+synthetic event tests as a reliable fallback for environments where raw socket capture
+is unavailable.
+
+**Real agent tests** start the actual compiled agent binary, trigger real network
+traffic (curl to api.openai.com), and verify events flow through the full pipeline
+to ClickHouse. These require root for raw socket capture and are automatically skipped
+when not running as root. In CI (GitHub Actions Linux runners are root by default),
+these run on every push.
+
+**Synthetic event tests** send protobuf EventBatch messages directly to the gateway
+HTTP endpoint. They test the full pipeline from HTTP ingest through RabbitMQ to
+ClickHouse without requiring a real agent, root access, or network traffic. These
+run on all environments and provide coverage when real agent tests cannot run.
+
+Windows integration tests were considered and deferred. Running Linux Docker containers
+alongside a Windows agent binary in the same CI job adds complexity without proportional
+benefit — the agent's Windows-specific capture code (SIO_RCVALL + ETW) is tested by
+the existing agent CI matrix on windows-latest.

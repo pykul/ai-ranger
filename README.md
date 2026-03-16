@@ -80,13 +80,127 @@ your developers are already using, without getting in the way.
 
 ---
 
-## Installation
+## Prerequisites
 
-### Downloading the agent
+To build and develop AI Ranger, you need the following tools:
+
+| Tool | Minimum Version | Purpose |
+|------|----------------|---------|
+| Docker + Docker Compose | Docker 24+ | Running the full backend stack |
+| Rust (via rustup) | 1.75+ (see `agent/Cargo.toml`) | Building the agent |
+| Go | 1.22+ (see `workers/go.mod`) | Building the workers |
+| Python | 3.12+ | Running the gateway |
+| protoc | 3.0+ | Regenerating protobuf code (only when changing `.proto` files) |
+
+Run the install script for your OS:
+
+```bash
+# macOS
+bash scripts/install-deps/macos.sh
+
+# Linux (Debian/Ubuntu or Fedora/RHEL)
+bash scripts/install-deps/linux.sh
+
+# Windows (run as Administrator)
+powershell -ExecutionPolicy Bypass -File scripts/install-deps/windows.ps1
+```
+
+### Verify your setup
+
+```bash
+docker --version          # Docker version 24+
+docker compose version    # Docker Compose version 2+
+rustc --version           # rustc 1.75+
+go version                # go1.22+
+python3 --version         # Python 3.12+
+protoc --version          # libprotoc 3+
+```
+
+---
+
+## Quick start
+
+### 1. Start the backend
+
+```bash
+git clone https://github.com/pykul/ai-ranger
+cd ai-ranger
+cp .env.example .env
+make dev
+```
+
+Wait for all services to start. You should see health checks passing for all containers.
+
+| Service | URL |
+|---------|-----|
+| Gateway Swagger UI | http://localhost:8080/docs |
+| API Server Swagger UI | http://localhost:8081/docs |
+| RabbitMQ Management | http://localhost:15672 |
+
+### 2. Build, enroll, and run the agent
+
+The dev environment seeds a test enrollment token (`tok_test_dev`) automatically.
+Build the agent and start it with `--token` and `--backend` — it enrolls and starts
+capturing in one step:
+
+```bash
+cargo build --manifest-path agent/Cargo.toml
+
+sudo ./target/debug/ai-ranger --token=tok_test_dev --backend=http://localhost:8080
+```
+
+On first run, the agent enrolls with the backend and begins capturing immediately.
+On subsequent runs, just `sudo ./target/debug/ai-ranger` — the enrollment is saved
+to `~/.config/ai-ranger/config.json` and reused automatically.
+
+### 3. Verify end-to-end
+
+In another terminal, trigger some AI provider traffic:
+
+```bash
+curl -s https://api.openai.com > /dev/null
+curl -s https://api.anthropic.com > /dev/null
+```
+
+Check that events flowed through the pipeline:
+
+```bash
+# See your enrolled agent
+curl -s http://localhost:8081/v1/dashboard/fleet | python3 -m json.tool
+
+# See detected events (once ClickHouse has ingested)
+curl -s http://localhost:8081/v1/dashboard/overview | python3 -m json.tool
+```
+
+---
+
+## Running standalone (no backend)
+
+The agent works completely independently. With no enrollment it prints events to
+stdout — useful for testing, scripting, or piping into your own tooling:
+
+```bash
+sudo ai-ranger
+```
+
+```json
+{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","os_type":"windows","timestamp_ms":1773564763684,"provider":"openai","provider_host":"api.openai.com","process_name":"curl.exe","process_pid":22276,"src_ip":"192.168.1.232","detection_method":"SNI","capture_mode":"DNS_SNI"}
+```
+
+Fields like `agent_id` are populated after enrollment — in standalone mode they are empty.
+No account. No config. No data sent anywhere.
+
+A default `config.toml` with all available options documented ships at `agent/config.toml`.
+
+---
+
+## Production deployment
+
+### Pre-built binaries
 
 Pre-built binaries for Linux, macOS (Intel and Apple Silicon), and Windows are
 attached to every release on the [GitHub Releases page](https://github.com/pykul/ai-ranger/releases).
-No Rust toolchain required to run them.
+No Rust toolchain required.
 
 ```bash
 # macOS (Apple Silicon)
@@ -108,74 +222,24 @@ Each release includes SHA256 checksums in `checksums.txt`. Verify before running
 sha256sum -c checksums.txt --ignore-missing
 ```
 
-Package manager support (Homebrew, AUR, nixpkgs, winget) is community-driven.
-If you package AI Ranger for a package manager, open a PR to add it to the docs.
+### Enrolling with a production backend
 
-### Enrolling an agent with a backend
-
-If you are running the full backend (see Quick Start below), generate an enrollment
-token from the dashboard and run the one-line installer. It handles binary download,
-checksum verification, and daemon installation automatically:
+Generate an enrollment token from the admin API, then start the agent:
 
 ```bash
-curl -sSL https://your-instance.com/install.sh | sh -s -- --token=tok_abc123
+ai-ranger --token=tok_your_token --backend=https://your-instance.com
 ```
 
-The agent installs as a system daemon (`launchd` on macOS, `systemd` on Linux,
-Windows Service on Windows), enrolls with your backend, and starts reporting.
-No reboot. No proxy configuration. No certificate installation.
+The agent enrolls with the backend on first run and starts capturing immediately.
+On subsequent runs, just `ai-ranger` — the enrollment is remembered.
 
-### Running standalone with no backend
-
-The agent works completely independently. With no config file it reads network
-traffic and prints events to stdout, useful for testing, scripting, or piping
-into your own tooling:
+For scripted deployments where enrollment and daemon start are separate steps
+(e.g. installer scripts), use `--enroll` to enroll and exit without capturing:
 
 ```bash
-sudo ai-ranger
+ai-ranger --enroll --token=tok_your_token --backend=https://your-instance.com
+# then start as daemon separately
 ```
-
-To verify it is working, open a second terminal and trigger some AI provider traffic:
-
-```bash
-# Each of these should produce a JSON line in the agent terminal
-curl -s https://api.anthropic.com > /dev/null
-curl -s https://api.openai.com > /dev/null
-curl -s https://api2.cursor.sh > /dev/null
-
-# This should produce nothing (not an AI provider)
-curl -s https://github.com > /dev/null
-```
-
-```json
-{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","os_type":"windows","timestamp_ms":1773564763684,"provider":"openai","provider_host":"api.openai.com","process_name":"curl.exe","process_pid":22276,"src_ip":"192.168.1.232","detection_method":"SNI","capture_mode":"DNS_SNI"}
-```
-
-When the destination IP matches a known provider range but SNI is hidden (e.g. by ECH),
-the event uses IP range detection instead:
-
-```json
-{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","os_type":"windows","timestamp_ms":1773568330095,"provider":"anthropic","provider_host":"api.anthropic.com","process_name":"curl.exe","process_pid":35588,"src_ip":"192.168.1.232","detection_method":"IP_RANGE","capture_mode":"DNS_SNI"}
-```
-
-Fields like `agent_id` are populated after enrollment - in standalone mode they are empty.
-
-No account. No config. No data sent anywhere.
-
-A default `config.toml` with all available options documented ships at `agent/config.toml`.
-
----
-
-## Quick start (full backend)
-
-```bash
-git clone https://github.com/pykul/ai-ranger
-cd ai-ranger
-make dev
-```
-
-Then open `http://localhost:3000`. Generate an enrollment token from the Fleet page,
-then install the agent on any machine using the one-liner above.
 
 ---
 
@@ -247,23 +311,18 @@ one or more output sinks. By default the only sink is stdout. The agent is fully
 functional with no other components present.
 
 Output sinks are pluggable. The agent ships with a stdout sink, a file sink, a backend
-sink that POSTs JSON batches to the AI Ranger backend over HTTPS (protobuf planned for Phase 2), and a webhook
-sink for custom destinations. Multiple
-sinks can be active at once, configured in `config.toml`. This is how teams with
-existing observability infrastructure connect AI Ranger to Datadog, Splunk, or any
-HTTPS endpoint without running the backend at all.
+sink that sends protobuf batches to the AI Ranger gateway, and a webhook sink for custom
+destinations. Multiple sinks can be active at once, configured in `config.toml`. This is
+how teams with existing observability infrastructure connect AI Ranger to Datadog, Splunk,
+or any HTTPS endpoint without running the backend at all.
 
-The backend is optional and self-hosted. It consists of a Python/Flask gateway that
+The backend is optional and self-hosted. It consists of a Python/FastAPI gateway that
 receives agent batches and publishes them to RabbitMQ, Go workers that consume from
 the queue and write to storage, and a React dashboard. Postgres holds identity data
-(organizations, agents, enrollment tokens). ClickHouse holds the event timeseries.
-The full stack starts with `make dev`.
+(organizations, agents, enrollment tokens) with schema managed via Alembic migrations.
+ClickHouse holds the event timeseries. The full stack starts with `make dev`.
 
-Internally, the agent's pipeline is organized into focused modules: `pipeline.rs` for
-packet-to-event transformation, `buffer/drain.rs` for upload management, and
-`identity/enroll.rs` for enrollment and identity loading.
-
-When the HTTPS sink is configured, the agent buffers events locally in SQLite and
+When the backend sink is configured, the agent buffers events locally in SQLite and
 uploads batches every 30 seconds. If the backend is unreachable, events accumulate
 locally and are delivered when the connection recovers.
 
@@ -305,19 +364,41 @@ The easiest way to contribute is to add a provider to `providers/providers.toml`
 If you see an AI tool making network calls that AI Ranger is not detecting, open a PR.
 The format is simple and documented in `providers/CONTRIBUTING.md`.
 
-For code contributions:
+For code contributions, see the [Quick start](#quick-start) section to set up your
+development environment, then:
 
 ```bash
-git clone https://github.com/pykul/ai-ranger
-cd ai-ranger
-make dev        # start the full stack
 make test       # run all tests
 make lint       # lint all components
 ```
 
+### Running integration tests
+
+Integration tests verify the full pipeline against the Docker Compose stack:
+
+```bash
+# Unit tests (no dependencies needed)
+make test
+
+# Integration tests (requires make dev to be running)
+make dev
+pip install -r tests/integration/requirements.txt
+pytest tests/integration/ -v
+
+# Real agent tests (requires root)
+sudo pytest tests/integration/test_ingest_real_agent.py -v
+```
+
+See `tests/README.md` for details on the test layers and how to add new tests.
+
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ---
+
+## How this was built
+
+AI Ranger was built using a deliberate methodology for managing complex projects
+with AI assistants. See [METHODOLOGY.md](./METHODOLOGY.md) for the full writeup.
 
 ## License
 

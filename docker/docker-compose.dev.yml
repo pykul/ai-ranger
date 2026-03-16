@@ -1,0 +1,40 @@
+# Dev overrides: source mounts for gateway and workers with hot reload.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+
+  gateway:
+    env_file: ../.env
+    environment:
+      ENVIRONMENT: "development"
+    volumes:
+      - ../gateway:/app
+      - ../proto/gen/python:/app/proto
+    command: >
+      sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8080 --reload"
+
+  ingest-worker:
+    build:
+      context: ..
+      dockerfile: workers/Dockerfile.dev
+    env_file: ../.env
+    volumes:
+      - ../workers:/app
+      - ../proto/gen/go:/proto/gen/go
+    command: >
+      CompileDaemon -build="go build -o /tmp/ingest-worker ./cmd/ingest"
+      -command="/tmp/ingest-worker" -directory="." -graceful-kill=true
+
+  api-server:
+    build:
+      context: ..
+      dockerfile: workers/Dockerfile.dev
+    env_file: ../.env
+    volumes:
+      - ../workers:/app
+      - ../proto/gen/go:/proto/gen/go
+    command: >
+      CompileDaemon -build="go build -o /tmp/api-server ./cmd/api"
+      -command="/tmp/api-server" -directory="." -graceful-kill=true

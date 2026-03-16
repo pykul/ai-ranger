@@ -395,6 +395,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ---
 
+## How this was built
+
+AI Ranger was built using a deliberate methodology for managing complex projects
+with AI assistants. See [METHODOLOGY.md](./METHODOLOGY.md) for the full writeup.
+
 ## License
 
 Apache-2.0. See [LICENSE](./LICENSE).

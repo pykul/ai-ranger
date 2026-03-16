@@ -5,8 +5,8 @@ TARGETS     := x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
 
 .PHONY: build test lint clean release run
 
-# Windows: run as Administrator (uses SIO_RCVALL via ws2_32.dll — no npcap needed).
-# Linux/macOS: run with sudo (uses AF_PACKET / BPF — no libpcap needed).
+# Windows: run as Administrator (uses SIO_RCVALL via ws2_32.dll - no npcap needed).
+# Linux/macOS: run with sudo (uses AF_PACKET / BPF - no libpcap needed).
 
 build:            ## Build debug binary for current platform
 	cargo build

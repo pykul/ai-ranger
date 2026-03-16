@@ -1,16 +1,17 @@
 /// Parse a raw TCP payload and extract the SNI hostname from a TLS ClientHello.
 ///
 /// The TLS ClientHello is sent in plaintext before encryption begins. Extracting
-/// the SNI requires zero cryptography — it is pure byte parsing of a known structure.
+/// the SNI requires zero cryptography - it is pure byte parsing of a known structure.
 ///
 /// Returns `None` if the payload is not a TLS ClientHello or contains no SNI extension.
 pub fn extract_sni(data: &[u8]) -> Option<String> {
+    use super::constants::*;
+
     // TLS record header: content_type(1) + version(2) + length(2) = 5 bytes
     if data.len() < 5 {
         return None;
     }
-    // 0x16 = handshake record type
-    if data[0] != 0x16 {
+    if data[0] != TLS_CONTENT_TYPE_HANDSHAKE {
         return None;
     }
 
@@ -25,8 +26,7 @@ pub fn extract_sni(data: &[u8]) -> Option<String> {
     if handshake.len() < 4 {
         return None;
     }
-    // 0x01 = ClientHello
-    if handshake[0] != 0x01 {
+    if handshake[0] != TLS_HANDSHAKE_CLIENT_HELLO {
         return None;
     }
 
@@ -37,11 +37,11 @@ pub fn extract_sni(data: &[u8]) -> Option<String> {
 
     let hello = &handshake[4..4 + hello_len];
 
-    // ClientHello body: version(2) + random(32) = 34 bytes to skip
-    if hello.len() < 34 {
+    // ClientHello body: version(2) + random(32) = CLIENT_HELLO_FIXED_PREFIX bytes to skip
+    if hello.len() < CLIENT_HELLO_FIXED_PREFIX {
         return None;
     }
-    let mut pos = 34;
+    let mut pos = CLIENT_HELLO_FIXED_PREFIX;
 
     // Session ID: length(1) + data
     if pos >= hello.len() {
@@ -73,7 +73,7 @@ pub fn extract_sni(data: &[u8]) -> Option<String> {
         return None;
     }
 
-    // Walk extensions looking for type 0x0000 (SNI)
+    // Walk extensions looking for SNI
     while pos + 4 <= ext_end {
         let ext_type = u16::from_be_bytes([hello[pos], hello[pos + 1]]);
         let ext_len = u16::from_be_bytes([hello[pos + 2], hello[pos + 3]]) as usize;
@@ -81,7 +81,7 @@ pub fn extract_sni(data: &[u8]) -> Option<String> {
         if pos + ext_len > ext_end {
             return None;
         }
-        if ext_type == 0x0000 {
+        if ext_type == TLS_EXT_SNI {
             return parse_sni_extension(&hello[pos..pos + ext_len]);
         }
         pos += ext_len;
@@ -97,8 +97,7 @@ fn parse_sni_extension(data: &[u8]) -> Option<String> {
     if data.len() < 5 {
         return None;
     }
-    // entry_type 0x00 = host_name
-    if data[2] != 0x00 {
+    if data[2] != super::constants::SNI_HOST_NAME_TYPE {
         return None;
     }
     let name_len = u16::from_be_bytes([data[3], data[4]]) as usize;

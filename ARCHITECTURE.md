@@ -28,9 +28,8 @@ self-hostable. The agent has zero required dependencies on any external infrastr
 - Detect connections to AI providers via SNI hostname extraction
 - Detect connections via DNS query monitoring (fallback/corroboration)
 - Identify which process and application is making the call
-- Measure bytes sent/received per connection (traffic volume proxy)
 - Associate activity with a specific enrolled machine and OS user
-- Aggregate into per-user, per-provider dashboards with traffic metrics
+- Aggregate into per-user, per-provider dashboards
 - Support custom output sinks via a plugin/webhook system
 
 **Does NOT (in default DNS/SNI mode):**
@@ -72,7 +71,6 @@ public at the network layer.
 What AI Ranger sees:
 - Which AI provider was contacted (from the SNI hostname)
 - Which process on your machine made the call
-- How many bytes were sent and received
 - When it happened
 
 What AI Ranger never sees:
@@ -102,34 +100,41 @@ ai-ranger/
 ├── agent/                      # Rust - the on-machine capture agent
 │   ├── Makefile
 │   ├── src/
-│   │   ├── main.rs
+│   │   ├── main.rs             # Thin wiring - CLI, config, task spawning, shutdown
+│   │   ├── event.rs            # AiConnectionEvent struct + constructor
+│   │   ├── config.rs           # config.toml parsing (AppConfig, AgentSection, OutputConfig)
+│   │   ├── pipeline.rs         # Packet-to-event transformation (classify, resolve, construct)
+│   │   ├── dedup.rs            # connection_id hashing + DedupCache
 │   │   ├── capture/
 │   │   │   ├── mod.rs
+│   │   │   ├── constants.rs    # Shared protocol constants (TLS, DNS, IP, Ethernet)
 │   │   │   ├── sni.rs          # TLS ClientHello parser, SNI extractor
 │   │   │   ├── dns.rs          # DNS response parser
-│   │   │   ├── pcap.rs         # libpcap / npcap interface
+│   │   │   ├── pcap.rs         # OS-native raw sockets (AF_PACKET on Linux, BPF on macOS, SIO_RCVALL + ETW on Windows)
+│   │   │   ├── etw_dns.rs      # Windows ETW DNS-Client provider (IPv6 + DNS hostname capture)
 │   │   │   └── mitm/           # DO NOT IMPLEMENT - Phase 5+ only
 │   │   │       └── mod.rs      # Stub file with a single comment explaining scope
 │   │   ├── process/
-│   │   │   ├── mod.rs
-│   │   │   └── resolver.rs     # pid -> process name, per OS
+│   │   │   └── mod.rs          # pid -> process name, per OS (Linux, macOS, Windows)
 │   │   ├── classifier/
-│   │   │   ├── mod.rs
+│   │   │   ├── mod.rs          # Re-exports + fetch_providers_url
 │   │   │   └── providers.rs    # Provider registry loader and matcher
 │   │   ├── output/
-│   │   │   ├── mod.rs
+│   │   │   ├── mod.rs          # build_sinks() + module declarations
 │   │   │   ├── sink.rs         # EventSink trait definition
 │   │   │   ├── stdout.rs       # Default output (no config needed)
-│   │   │   ├── file.rs         # --output file:/path
-│   │   │   ├── http.rs         # --output http://backend-url
+│   │   │   ├── file.rs         # JSON-lines file output
+│   │   │   ├── http.rs         # POST JSON batches to backend gateway
 │   │   │   ├── webhook.rs      # Custom webhook sink
 │   │   │   └── fanout.rs       # Fan events to multiple sinks concurrently
 │   │   ├── identity/
 │   │   │   ├── mod.rs
-│   │   │   └── config.rs       # Enrollment token, agent ID, machine metadata
+│   │   │   ├── config.rs       # AgentConfig, machine metadata, OS config paths
+│   │   │   └── enroll.rs       # Enrollment flow + identity loading
 │   │   └── buffer/
 │   │       ├── mod.rs
-│   │       └── store.rs        # SQLite local event buffer (http mode only)
+│   │       ├── store.rs        # SQLite local event buffer (http mode only)
+│   │       └── drain.rs        # Background drain loop with exponential backoff
 │   └── Cargo.toml
 │
 ├── gateway/                    # Python + Flask - thin agent-facing gateway
@@ -336,7 +341,8 @@ package ranger.v1;
 enum DetectionMethod {
   SNI = 0;
   DNS = 1;
-  TCP_HEURISTIC = 2;
+  IP_RANGE = 2;       // Fallback: matched destination IP against provider CIDR ranges
+  TCP_HEURISTIC = 3;
 }
 
 enum CaptureMode {
@@ -349,6 +355,7 @@ message AiConnectionEvent {
   string agent_id = 1;
   string machine_hostname = 2;
   string os_username = 3;
+  string os_type = 24;  // "linux", "macos", or "windows" - compile-time constant
 
   // Timing
   int64 timestamp_ms = 4;
@@ -364,9 +371,8 @@ message AiConnectionEvent {
   uint32 process_pid = 10;
   optional string process_path = 11;
 
-  // Traffic
-  uint64 bytes_sent = 12;
-  uint64 bytes_received = 13;
+  // Dedup
+  string connection_id = 23;  // hash of (src_ip, provider_host, timestamp_ms / 2000)
 
   // Detection
   DetectionMethod detection_method = 14;
@@ -435,27 +441,27 @@ pub struct AiConnectionEvent {
     pub agent_id: String,
     pub machine_hostname: String,
     pub os_username: String,
+    pub os_type: String,                // "linux", "macos", or "windows" - from std::env::consts::OS
+
+    // Dedup
+    pub connection_id: String,          // Hash of (src_ip, provider_host, timestamp_ms / 2000). Omitted from JSON when empty.
 
     // Timing
     pub timestamp_ms: i64,              // Phase 0
-    pub duration_ms: Option<u64>,       // Phase 1
+    pub duration_ms: Option<u64>,       // Deferred - requires TCP session lifecycle tracking. See DECISIONS.md
 
     // Provider
     pub provider: String,               // Phase 0 - "anthropic", "openai" ...
     pub provider_host: String,          // Phase 0 - raw SNI e.g. "api.anthropic.com"
-    pub model_hint: Option<String>,     // Phase 1 - derived from hostname
+    pub model_hint: Option<String>,     // Phase 5 - populated from request body in MITM mode
 
     // Process
-    pub process_name: String,           // Phase 0 - "unknown" until Phase 1
+    pub process_name: String,           // "unknown" if process exited before lookup
     pub process_pid: u32,               // Phase 0
     pub process_path: Option<String>,   // Phase 1
 
     // Network
     pub src_ip: String,                 // Phase 0 - source IP of the connection
-
-    // Traffic
-    pub bytes_sent: u64,                // Phase 1
-    pub bytes_received: u64,            // Phase 1
 
     // Detection
     pub detection_method: DetectionMethod,  // Phase 0
@@ -476,7 +482,6 @@ pub struct AiConnectionEvent {
 ```rust
 pub struct AgentConfig {
     pub agent_id: String,           // generated once at enrollment, never changes
-    pub enrollment_token: String,   // provided during install, invalidated after use
     pub org_id: String,             // returned by backend at enrollment
     pub backend_url: String,
     pub machine_hostname: String,
@@ -484,6 +489,10 @@ pub struct AgentConfig {
     pub enrolled_at: i64,           // unix ms
 }
 ```
+
+The enrollment token is passed via `--token` during the `ai-ranger enroll` command
+and consumed by the backend. It is not persisted in `AgentConfig` - after enrollment
+completes, the agent uses `agent_id` for all subsequent authentication.
 
 ---
 
@@ -504,7 +513,7 @@ pub trait EventSink: Send + Sync {
 **Built-in implementations (ship with agent):**
 - `StdoutSink` - default, no config required
 - `FileSink` - write JSON lines to a file
-- `HttpSink` - POST protobuf batches to the gateway
+- `HttpSink` - POST JSON batches to the gateway (protobuf planned for Phase 2)
 - `WebhookSink` - POST JSON to any arbitrary URL with configurable headers
 - `FanoutSink` - wraps multiple sinks, sends to all concurrently
 
@@ -573,6 +582,13 @@ mode = "dns-sni"
 # If not set, uses the bundled providers.toml
 providers_url = "https://raw.githubusercontent.com/pykul/ai-ranger/main/providers/providers.toml"
 
+# ── Tuning parameters (all optional, defaults shown) ──────────────────────
+# drain_interval_secs = 30          # How often the SQLite buffer uploads to the backend (seconds)
+# drain_batch_size = 500            # Maximum events per upload batch
+# http_batch_size = 100             # Maximum events buffered per HTTP sink flush
+# webhook_batch_size = 100          # Default maximum events buffered per webhook sink flush
+# providers_fetch_timeout_secs = 10 # Timeout for fetching providers.toml from URL (seconds)
+
 # Multiple outputs supported - events fan out to all of them
 [[outputs]]
 type = "stdout"     # default, always works with zero config
@@ -580,7 +596,9 @@ type = "stdout"     # default, always works with zero config
 [[outputs]]
 type = "http"
 url = "http://localhost:8080"   # use https:// in production
-token = "tok_abc123"
+# Authentication uses agent_id as Bearer token, set during enrollment.
+# No token field needed here - the agent authenticates with the identity
+# established by `ai-ranger --enroll --token=... --backend=...`.
 
 [[outputs]]
 type = "webhook"
@@ -608,33 +626,27 @@ Example payload:
     "agent_id": "3f2a1b4c-...",
     "machine_hostname": "alices-macbook",
     "os_username": "alice",
+    "os_type": "macos",
+    "connection_id": "a1b2c3d4e5f67890",
     "timestamp_ms": 1773506947460,
-    "duration_ms": null,
     "provider": "anthropic",
     "provider_host": "api.anthropic.com",
-    "model_hint": null,
     "process_name": "claude",
     "process_pid": 1867,
-    "process_path": null,
     "src_ip": "172.27.151.106",
-    "bytes_sent": 0,
-    "bytes_received": 0,
     "detection_method": "SNI",
-    "capture_mode": "DNS_SNI",
-    "content_available": false,
-    "payload_ref": null,
-    "model_exact": null,
-    "token_count_input": null,
-    "token_count_output": null,
-    "latency_ttfb_ms": null
+    "capture_mode": "DNS_SNI"
   }
 ]
 ```
 
-Fields populated only in MITM mode (Phase 5+) will always be `null` in the current
-version. `bytes_sent` and `bytes_received` are populated in Phase 1 and will be `0`
-in Phase 0 output. The `batch_size` config key controls the maximum number of events
-per POST. If not set, the default is 100.
+Optional fields (`duration_ms`, `model_hint`, `process_path`) are omitted from the JSON
+when null. Phase 5 fields (`content_available`, `payload_ref`, `model_exact`,
+`token_count_input`, `token_count_output`, `latency_ttfb_ms`) are omitted entirely in
+the current version. They will appear when populated in MITM mode.
+
+The `batch_size` config key controls the maximum number of events per POST.
+If not set, the default is 100.
 
 ---
 
@@ -643,12 +655,18 @@ per POST. If not set, the default is 100.
 ```toml
 # CONTRIBUTING: To add a provider, open a PR adding an entry below.
 # Required fields: name, display_name, hostnames
+# Optional: ip_ranges - CIDR ranges for providers with dedicated IP space.
+#   Used as a last-resort fallback when both SNI and DNS detection fail
+#   (e.g. applications using ECH+DoH, currently primarily browsers). Only add ip_ranges for providers
+#   with dedicated IPs. Do NOT add ranges for CDN-backed providers - shared
+#   IPs cause false positives.
 # Please include a source link (docs_url) for any hostname you add.
 
 [[providers]]
 name = "anthropic"
 display_name = "Anthropic / Claude"
 hostnames = ["api.anthropic.com", "claude.ai"]
+ip_ranges = ["160.79.104.0/23", "2607:6bc0::/48"]
 docs_url = "https://docs.anthropic.com"
 
 [[providers]]
@@ -671,18 +689,84 @@ hostnames = ["copilot-proxy.githubusercontent.com", "githubcopilot.com"]
 name = "google_gemini"
 display_name = "Google Gemini"
 hostnames = ["generativelanguage.googleapis.com", "aistudio.google.com"]
+docs_url = "https://ai.google.dev/docs"
 
 [[providers]]
 name = "mistral"
 display_name = "Mistral"
 hostnames = ["api.mistral.ai"]
+docs_url = "https://docs.mistral.ai"
+
+[[providers]]
+name = "cohere"
+display_name = "Cohere"
+hostnames = ["api.cohere.ai", "api.cohere.com"]
+docs_url = "https://docs.cohere.com"
+
+[[providers]]
+name = "huggingface"
+display_name = "Hugging Face"
+hostnames = ["api-inference.huggingface.co", "huggingface.co"]
+docs_url = "https://huggingface.co/docs"
+
+[[providers]]
+name = "replicate"
+display_name = "Replicate"
+hostnames = ["api.replicate.com"]
+docs_url = "https://replicate.com/docs"
+
+[[providers]]
+name = "together"
+display_name = "Together AI"
+hostnames = ["api.together.xyz"]
+docs_url = "https://docs.together.ai"
+
+[[providers]]
+name = "perplexity"
+display_name = "Perplexity"
+hostnames = ["api.perplexity.ai", "www.perplexity.ai"]
+docs_url = "https://docs.perplexity.ai"
+
+[[providers]]
+name = "deepseek"
+display_name = "DeepSeek"
+hostnames = ["api.deepseek.com", "chat.deepseek.com"]
+
+[[providers]]
+name = "xai"
+display_name = "xAI / Grok"
+hostnames = ["api.x.ai"]
+
+[[providers]]
+name = "ai21"
+display_name = "AI21 Labs"
+hostnames = ["api.ai21.com"]
+docs_url = "https://docs.ai21.com"
+
+[[providers]]
+name = "amazon_bedrock"
+display_name = "Amazon Bedrock"
+hostnames = ["bedrock-runtime.us-east-1.amazonaws.com", "bedrock-runtime.us-west-2.amazonaws.com", "bedrock-runtime.eu-west-1.amazonaws.com", "bedrock.us-east-1.amazonaws.com", "bedrock.us-west-2.amazonaws.com"]
+docs_url = "https://docs.aws.amazon.com/bedrock"
+
+[[providers]]
+name = "azure_openai"
+display_name = "Azure OpenAI"
+hostnames = ["openai.azure.com"]
+docs_url = "https://learn.microsoft.com/en-us/azure/ai-services/openai"
+
+[[providers]]
+name = "stability"
+display_name = "Stability AI"
+hostnames = ["api.stability.ai"]
+docs_url = "https://platform.stability.ai/docs"
 
 [[providers]]
 name = "ollama"
 display_name = "Ollama (Local)"
 hostnames = ["localhost"]
-ports = [11434]
-tls = false     # No SNI extraction needed - plain TCP
+ports = [11434]       # parsed but not yet implemented in the agent
+tls = false           # parsed but not yet implemented in the agent
 ```
 
 ---
@@ -722,9 +806,9 @@ Only the capture backend is OS-specific.
 
 | OS      | Capture method | Rust approach | Notes |
 |---------|---------------|---------------|-------|
-| Linux   | `AF_PACKET` raw socket | `socket2` crate + manual filter | No external deps, requires root |
-| macOS   | BPF device (`/dev/bpf*`) | `socket2` or direct `libc` syscalls | No external deps, requires root |
-| Windows | ETW (Event Tracing for Windows) | `ferrisetw` crate | No driver install needed, built into Windows |
+| Linux   | `AF_PACKET` raw socket (IPv4 + IPv6) | direct `libc` syscalls + BPF filter | No external deps, requires root |
+| macOS   | BPF device (`/dev/bpf*`) (IPv4 + IPv6) | direct `libc` syscalls | No external deps, requires root |
+| Windows | `SIO_RCVALL` raw socket (IPv4 packets) + ETW `Microsoft-Windows-DNS-Client` (DNS resolutions) | `winapi` + `ferrisetw` crate | Dual-path: IPv4 packets via raw socket, DNS hostnames via ETW. Requires Administrator |
 
 The `pnet` crate is an alternative to `socket2` for Linux and macOS if direct BPF/AF_PACKET
 access proves complex. It abstracts raw sockets without requiring libpcap. Either is acceptable
@@ -745,8 +829,12 @@ mod platform {
 
 #[cfg(target_os = "windows")]
 mod platform {
-    // ETW implementation via ferrisetw
+    // SIO_RCVALL raw socket for IPv4 packet capture
 }
+
+// capture/etw_dns.rs (Windows only):
+// ETW Microsoft-Windows-DNS-Client for DNS resolution monitoring
+// Covers IPv6 connections that SIO_RCVALL cannot see
 
 pub use platform::capture_packets;
 ```
@@ -863,6 +951,7 @@ CREATE TABLE ai_events (
     agent_id        UUID,
     hostname        String,
     os_username     LowCardinality(String),
+    os_type         LowCardinality(String),
     timestamp       DateTime64(3, 'UTC'),
     provider        LowCardinality(String),
     provider_host   String,
@@ -1151,13 +1240,13 @@ DELETE /v1/admin/agents/:id   -> revoke agent
 - Top providers by connection count (bar chart)
 
 **2. Provider Breakdown**
-- Table: Provider | Connections | Unique Users | Bytes Sent | Bytes Received | Trend
+- Table: Provider | Connections | Unique Users | Bytes Sent | Bytes Received | Trend (Bytes Sent/Received require byte counting implementation)
 - Time series: connections over time, stacked by provider
 - Date range filter
 
 **3. User Activity Table**
 - Rows: one per (user x provider x process) combination
-- Columns: User | Machine | Provider | App | Connections | Data Sent | Data Received | Last Active
+- Columns: User | Machine | Provider | App | Connections | Data Sent | Data Received | Last Active (Data Sent/Received require byte counting implementation)
 - Sortable, filterable, click-through to user timeline
 
 **4. Traffic Over Time**
@@ -1303,9 +1392,9 @@ This is required for community adoption.
 - Root Makefile and agent/Makefile created at the start of this phase
 
 ### Phase 1 - Agent MVP (4-5 weeks)
-- Full SNI + DNS capture pipeline
+- Full SNI + DNS capture pipeline (including ETW DNS-Client on Windows for IPv6 coverage)
 - Provider classifier with `providers.toml` (15-20 providers seeded)
-- Process resolver (Linux + macOS; Windows in Phase 4)
+- Process resolver (Linux, macOS, and Windows)
 - All output sinks: stdout, file, http (protobuf)
 - WebhookSink for custom telemetry
 - FanoutSink (fan events to multiple outputs)
@@ -1334,8 +1423,8 @@ This is required for community adoption.
 - Enrollment token generation UI
 - dashboard/Makefile working
 
-### Phase 4 - Polish + Windows (2-3 weeks)
-- Windows agent + installer (PowerShell)
+### Phase 4 - Polish + Windows Installer (2-3 weeks)
+- Windows installer (PowerShell) + Windows service registration
 - Agent auto-update mechanism
 - Agent version tracking in fleet view
 - Alerting (new provider first seen, unusual volume)
@@ -1376,6 +1465,20 @@ Hard problems to solve in Phase 5:
 
 ---
 
+## Known Limitations
+
+- **Process attribution resolves the process that owns the socket at the moment of capture.** Short-lived child processes (e.g. `curl` spawned from a shell) may appear as their parent process or as `"unknown"` if the process exits before the name can be resolved. The PID is always accurate regardless. This is expected behavior and not a bug. In practice it does not affect real AI tool detection since tools like Cursor, Claude Code, and Python scripts own their sockets directly.
+
+- **Traffic volume (bytes sent/received) is not measured.** Accurate byte counting requires full TCP session tracking across the connection lifecycle, which is not currently implemented.
+
+- **IP range matching only covers providers with dedicated IP space.** Providers behind shared CDNs (OpenAI, Claude, Cursor, Copilot, Gemini) cannot be detected via IP matching without causing false positives. Currently only the Anthropic API (`api.anthropic.com`) has a known dedicated range (`160.79.104.0/23`).
+
+- **On Windows, DNS-based detection relies on the Windows DNS client service.** Applications that use their own internal DoH resolver, bypassing the OS DNS client, are invisible to ETW DNS-Client events. Currently this is primarily browsers (Chrome, Firefox, Edge, Brave) but the limitation applies to any application that implements DoH internally. CLI tools, SDKs, and desktop AI applications use the system DNS resolver and are detected normally.
+
+- **Ollama local model detection is not implemented.** The `ports` and `tls` fields in `providers.toml` are parsed but ignored. Connections to localhost on port 11434 without TLS cannot be detected via SNI. See DECISIONS.md for the planned TCP heuristic approach.
+
+---
+
 ## Key Architectural Decisions (and Why)
 
 | Decision | Chosen | Rejected | Reason |
@@ -1407,8 +1510,8 @@ to install on machines that monitor network traffic.
 1. **Zero call-home by default.** The agent never contacts any URL unless explicitly
    configured. Running `ai-ranger` with no config file produces stdout output only.
 
-2. **No content inspection in default mode.** DNS/SNI mode reads hostnames and byte
-   counts only. It never reads, buffers, or transmits any part of the TLS payload.
+2. **No content inspection in default mode.** DNS/SNI mode reads hostnames only.
+   It never reads, buffers, or transmits any part of the TLS payload.
 
 3. **MITM mode is always explicit opt-in.** It requires a separate install step, a
    separate flag (`--mode mitm`), and a consent flow. It is never the default.
@@ -1432,9 +1535,9 @@ to install on machines that monitor network traffic.
 - Does not detect AI calls made through a VPN that terminates on-machine
 - Ollama (local models) requires TCP heuristic, not SNI (no TLS)
 - Process attribution can have brief gaps under very high connection rates
-- Byte volume is a proxy for token usage, not a precise token count
 - Provider hostnames change occasionally; registry needs community maintenance
 - Requires root on Linux and macOS, elevated service permissions on Windows
+- ECH (Encrypted Client Hello) and DoH (DNS over HTTPS) are TLS and DNS privacy features that any application can implement. Applications using ECH hide the SNI hostname; applications using DoH bypass UDP port 53 DNS capture. When both are active simultaneously, passive detection produces no events. Browsers (Chrome, Firefox, Edge, Brave) are the primary current deployers of both features. Anthropic API connections are partially recoverable via IP range matching. Full visibility for ECH+DoH applications requires MITM mode (Phase 5). CLI tools, SDKs, and desktop AI apps do not currently implement ECH and are unaffected.
 
 ---
 

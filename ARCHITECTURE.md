@@ -100,34 +100,41 @@ ai-ranger/
 ├── agent/                      # Rust - the on-machine capture agent
 │   ├── Makefile
 │   ├── src/
-│   │   ├── main.rs
+│   │   ├── main.rs             # Thin wiring - CLI, config, task spawning, shutdown
+│   │   ├── event.rs            # AiConnectionEvent struct + constructor
+│   │   ├── config.rs           # config.toml parsing (AppConfig, AgentSection, OutputConfig)
+│   │   ├── pipeline.rs         # Packet-to-event transformation (classify, resolve, construct)
+│   │   ├── dedup.rs            # connection_id hashing + DedupCache
 │   │   ├── capture/
 │   │   │   ├── mod.rs
+│   │   │   ├── constants.rs    # Shared protocol constants (TLS, DNS, IP, Ethernet)
 │   │   │   ├── sni.rs          # TLS ClientHello parser, SNI extractor
 │   │   │   ├── dns.rs          # DNS response parser
-│   │   │   ├── pcap.rs         # libpcap / npcap interface
+│   │   │   ├── pcap.rs         # OS-native raw sockets (AF_PACKET on Linux, BPF on macOS, SIO_RCVALL + ETW on Windows)
+│   │   │   ├── etw_dns.rs      # Windows ETW DNS-Client provider (IPv6 + DNS hostname capture)
 │   │   │   └── mitm/           # DO NOT IMPLEMENT - Phase 5+ only
 │   │   │       └── mod.rs      # Stub file with a single comment explaining scope
 │   │   ├── process/
-│   │   │   ├── mod.rs
-│   │   │   └── resolver.rs     # pid -> process name, per OS
+│   │   │   └── mod.rs          # pid -> process name, per OS (Linux, macOS, Windows)
 │   │   ├── classifier/
-│   │   │   ├── mod.rs
+│   │   │   ├── mod.rs          # Re-exports + fetch_providers_url
 │   │   │   └── providers.rs    # Provider registry loader and matcher
 │   │   ├── output/
-│   │   │   ├── mod.rs
+│   │   │   ├── mod.rs          # build_sinks() + module declarations
 │   │   │   ├── sink.rs         # EventSink trait definition
 │   │   │   ├── stdout.rs       # Default output (no config needed)
-│   │   │   ├── file.rs         # --output file:/path
-│   │   │   ├── http.rs         # --output http://backend-url
+│   │   │   ├── file.rs         # JSON-lines file output
+│   │   │   ├── http.rs         # POST JSON batches to backend gateway
 │   │   │   ├── webhook.rs      # Custom webhook sink
 │   │   │   └── fanout.rs       # Fan events to multiple sinks concurrently
 │   │   ├── identity/
 │   │   │   ├── mod.rs
-│   │   │   └── config.rs       # Enrollment token, agent ID, machine metadata
+│   │   │   ├── config.rs       # AgentConfig, machine metadata, OS config paths
+│   │   │   └── enroll.rs       # Enrollment flow + identity loading
 │   │   └── buffer/
 │   │       ├── mod.rs
-│   │       └── store.rs        # SQLite local event buffer (http mode only)
+│   │       ├── store.rs        # SQLite local event buffer (http mode only)
+│   │       └── drain.rs        # Background drain loop with exponential backoff
 │   └── Cargo.toml
 │
 ├── gateway/                    # Python + Flask - thin agent-facing gateway
@@ -435,6 +442,9 @@ pub struct AiConnectionEvent {
     pub machine_hostname: String,
     pub os_username: String,
     pub os_type: String,                // "linux", "macos", or "windows" - from std::env::consts::OS
+
+    // Dedup
+    pub connection_id: String,          // Hash of (src_ip, provider_host, timestamp_ms / 2000). Omitted from JSON when empty.
 
     // Timing
     pub timestamp_ms: i64,              // Phase 0
@@ -1525,9 +1535,9 @@ to install on machines that monitor network traffic.
 - Does not detect AI calls made through a VPN that terminates on-machine
 - Ollama (local models) requires TCP heuristic, not SNI (no TLS)
 - Process attribution can have brief gaps under very high connection rates
-- Byte volume is a proxy for token usage, not a precise token count
 - Provider hostnames change occasionally; registry needs community maintenance
 - Requires root on Linux and macOS, elevated service permissions on Windows
+- Browsers using ECH (Encrypted Client Hello) hide the SNI hostname, and browsers using DoH (DNS over HTTPS) bypass UDP port 53 DNS capture. When both are active simultaneously (the default in Chrome, Firefox, Edge, and Brave), passive SNI and DNS detection produce no events for browser traffic. Anthropic API connections are partially recoverable via IP range matching. Full browser visibility requires MITM mode (Phase 5). CLI tools, SDKs, and desktop AI apps are unaffected.
 
 ---
 

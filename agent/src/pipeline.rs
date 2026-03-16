@@ -66,3 +66,83 @@ pub(crate) fn handle_packet(
         CaptureMode::DnsSni,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_ctx() -> PipelineContext {
+        PipelineContext {
+            agent_id: "test-agent".to_string(),
+            machine_hostname: "test-host".to_string(),
+            os_username: "testuser".to_string(),
+            os_type: "linux".to_string(),
+        }
+    }
+
+    fn ensure_providers() {
+        classifier::providers::init_with_fetched(None, None);
+    }
+
+    #[test]
+    fn sni_match_produces_event() {
+        ensure_providers();
+        let packet = PacketInfo {
+            hostname: "api.anthropic.com".to_string(),
+            src_ip: "10.0.0.1".to_string(),
+            dst_ip: "160.79.104.1".to_string(),
+            src_port: 0,
+            detection_method: "sni",
+        };
+        let event = handle_packet(packet, &test_ctx()).unwrap();
+        assert_eq!(event.provider, "anthropic");
+        assert_eq!(event.provider_host, "api.anthropic.com");
+        assert_eq!(event.detection_method, DetectionMethod::Sni);
+        assert_eq!(event.os_type, "linux");
+        assert!(!event.connection_id.is_empty());
+    }
+
+    #[test]
+    fn unknown_hostname_returns_none() {
+        ensure_providers();
+        let packet = PacketInfo {
+            hostname: "example.com".to_string(),
+            src_ip: "10.0.0.1".to_string(),
+            dst_ip: "93.184.216.34".to_string(),
+            src_port: 0,
+            detection_method: "sni",
+        };
+        assert!(handle_packet(packet, &test_ctx()).is_none());
+    }
+
+    #[test]
+    fn ip_range_match_produces_event_with_ip_range_method() {
+        ensure_providers();
+        // Empty hostname forces IP range fallback. 160.79.104.1 is in Anthropic's range.
+        let packet = PacketInfo {
+            hostname: String::new(),
+            src_ip: "10.0.0.1".to_string(),
+            dst_ip: "160.79.104.1".to_string(),
+            src_port: 0,
+            detection_method: "",
+        };
+        let event = handle_packet(packet, &test_ctx()).unwrap();
+        assert_eq!(event.provider, "anthropic");
+        assert_eq!(event.detection_method, DetectionMethod::IpRange);
+    }
+
+    #[test]
+    fn dns_detection_method_set_correctly() {
+        ensure_providers();
+        let packet = PacketInfo {
+            hostname: "api.openai.com".to_string(),
+            src_ip: "10.0.0.1".to_string(),
+            dst_ip: "104.18.0.1".to_string(),
+            src_port: 0,
+            detection_method: "dns",
+        };
+        let event = handle_packet(packet, &test_ctx()).unwrap();
+        assert_eq!(event.provider, "openai");
+        assert_eq!(event.detection_method, DetectionMethod::Dns);
+    }
+}

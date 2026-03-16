@@ -258,6 +258,10 @@ the queue and write to storage, and a React dashboard. Postgres holds identity d
 (organizations, agents, enrollment tokens). ClickHouse holds the event timeseries.
 The full stack starts with `make dev`.
 
+Internally, the agent's pipeline is organized into focused modules: `pipeline.rs` for
+packet-to-event transformation, `buffer/drain.rs` for upload management, and
+`identity/enroll.rs` for enrollment and identity loading.
+
 When the HTTPS sink is configured, the agent buffers events locally in SQLite and
 uploads batches every 30 seconds. If the backend is unreachable, events accumulate
 locally and are delivered when the connection recovers.

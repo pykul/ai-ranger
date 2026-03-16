@@ -459,6 +459,20 @@ without shelling out to netsh. This creates a system-wide session conflict and o
 operational problems. ETW DNS-Client solves the actual problem (hostname visibility
 across all protocols) more cleanly.
 
+### os_type field on AiConnectionEvent
+
+`os_type` was added to AiConnectionEvent to enable dashboard segmentation by operating
+system - whether AI tool adoption differs between Linux, macOS, and Windows developers.
+`std::env::consts::OS` was chosen as the source because it is a compile-time constant
+that returns clean lowercase strings ("linux", "macos", "windows") with no runtime
+detection needed. The value is computed once at startup and passed into every event
+construction path.
+
+The field belongs on AiConnectionEvent rather than only in AgentConfig because events
+should be self-describing. Webhook consumers who receive raw events do not have access
+to agent enrollment metadata. Embedding os_type in each event means any downstream
+system can filter or aggregate by OS without a join to the agents table.
+
 ---
 
 ## Pre-Phase 2 Maturity Pass
@@ -513,6 +527,65 @@ All were found to be correct:
   null bytes. Structurally unreachable.
 
 No changes were made to error handling. The codebase does not have hidden panic paths.
+
+---
+
+## Pre-Phase 2 Code Quality Refactor
+
+A structural refactor was done to bring the codebase to maintainable shape before Phase 2
+adds backend components. Four decisions are worth recording.
+
+### Business logic extracted from main.rs
+
+main.rs was 455 lines and mixed wiring (config loading, channel setup, task spawning) with
+business logic (packet classification, process resolution, event construction, buffer
+draining, enrollment). A new contributor reading main.rs had to mentally separate "how
+things are connected" from "what things do." The fix was to extract each concern into its
+own file:
+
+- `pipeline.rs` - packet-to-event transformation (classify hostname/IP, resolve process,
+  compute connection_id, construct event). This is the core detection pipeline.
+- `buffer/drain.rs` - background drain loop with exponential backoff. Owns the drain
+  constants (interval, batch size, backoff multiplier).
+- `identity/enroll.rs` - enrollment flow (create AgentConfig, save, exit) and identity
+  loading. Owns the enrollment CLI interaction.
+- `output/mod.rs` - `build_sinks()` moved here since it constructs output sinks from config.
+- `classifier/mod.rs` - `fetch_providers_url()` moved here since it fetches provider data.
+
+main.rs dropped to 180 lines of pure wiring. Every line is either a constant, a CLI struct
+field, or a call to a function defined elsewhere. No business logic remains.
+
+### AiConnectionEvent derives Clone instead of manual clone_event()
+
+The HttpSink had a 26-line `clone_event()` function that manually copied every field of
+AiConnectionEvent. This function had to be updated every time a field was added (as
+happened with `os_type`). The justification for not deriving Clone was "to keep it
+lightweight in the common case" - but Clone on a struct of Strings is zero-cost when not
+called. The derive only generates code; it does not change the struct's size, layout, or
+runtime behavior in paths that do not clone. The manual function was deleted and replaced
+with `event.clone()`.
+
+### AiConnectionEvent::new() constructor centralizes Phase 5 defaults
+
+Event construction was duplicated in two places: the main capture callback in main.rs and
+the ETW DNS callback in etw_dns.rs. Both constructed the full 20-field struct with
+identical Phase 5 defaults (6 fields always set to None/false). Every new field required
+editing both locations. The constructor accepts only the 14 fields that genuinely vary and
+fills Phase 5 defaults internally. This means adding a Phase 5 field is a one-line change
+in the constructor, and adding a non-Phase-5 field is a compiler error at every call site
+(which is the correct behavior - the caller must provide a value).
+
+### pub(crate) instead of pub for internal items
+
+The agent is a binary crate, not a library. The Rust compiler does not enforce the
+pub/pub(crate) distinction in binaries - both compile identically. The distinction was
+made anyway because it communicates intent to contributors: `pub(crate)` means "used by
+other modules in this crate but not part of a public interface." When Phase 2 adds the
+proto-generated types as a separate crate, items that are truly public will need to be
+`pub` while internal implementation stays `pub(crate)`. Making the distinction now avoids
+a retroactive audit later. Constants in capture/constants.rs, batch size defaults in
+output sinks, the dedup bucket constant, and internal types like ProviderRegistry were
+all narrowed from `pub` to `pub(crate)`.
 
 ---
 

@@ -348,6 +348,7 @@ message AiConnectionEvent {
   string agent_id = 1;
   string machine_hostname = 2;
   string os_username = 3;
+  string os_type = 24;  // "linux", "macos", or "windows" - compile-time constant
 
   // Timing
   int64 timestamp_ms = 4;
@@ -433,6 +434,7 @@ pub struct AiConnectionEvent {
     pub agent_id: String,
     pub machine_hostname: String,
     pub os_username: String,
+    pub os_type: String,                // "linux", "macos", or "windows" - from std::env::consts::OS
 
     // Timing
     pub timestamp_ms: i64,              // Phase 0
@@ -570,6 +572,13 @@ mode = "dns-sni"
 # If not set, uses the bundled providers.toml
 providers_url = "https://raw.githubusercontent.com/pykul/ai-ranger/main/providers/providers.toml"
 
+# ── Tuning parameters (all optional, defaults shown) ──────────────────────
+# drain_interval_secs = 30          # How often the SQLite buffer uploads to the backend (seconds)
+# drain_batch_size = 500            # Maximum events per upload batch
+# http_batch_size = 100             # Maximum events buffered per HTTP sink flush
+# webhook_batch_size = 100          # Default maximum events buffered per webhook sink flush
+# providers_fetch_timeout_secs = 10 # Timeout for fetching providers.toml from URL (seconds)
+
 # Multiple outputs supported - events fan out to all of them
 [[outputs]]
 type = "stdout"     # default, always works with zero config
@@ -607,6 +616,7 @@ Example payload:
     "agent_id": "3f2a1b4c-...",
     "machine_hostname": "alices-macbook",
     "os_username": "alice",
+    "os_type": "macos",
     "connection_id": "a1b2c3d4e5f67890",
     "timestamp_ms": 1773506947460,
     "provider": "anthropic",
@@ -931,6 +941,7 @@ CREATE TABLE ai_events (
     agent_id        UUID,
     hostname        String,
     os_username     LowCardinality(String),
+    os_type         LowCardinality(String),
     timestamp       DateTime64(3, 'UTC'),
     provider        LowCardinality(String),
     provider_host   String,

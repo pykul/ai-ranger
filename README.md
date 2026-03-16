@@ -148,14 +148,14 @@ curl -s https://github.com > /dev/null
 ```
 
 ```json
-{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","timestamp_ms":1773564763684,"provider":"openai","provider_host":"api.openai.com","process_name":"curl.exe","process_pid":22276,"src_ip":"192.168.1.232","detection_method":"SNI","capture_mode":"DNS_SNI"}
+{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","os_type":"windows","timestamp_ms":1773564763684,"provider":"openai","provider_host":"api.openai.com","process_name":"curl.exe","process_pid":22276,"src_ip":"192.168.1.232","detection_method":"SNI","capture_mode":"DNS_SNI"}
 ```
 
 When the destination IP matches a known provider range but SNI is hidden (e.g. by ECH),
 the event uses IP range detection instead:
 
 ```json
-{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","timestamp_ms":1773568330095,"provider":"anthropic","provider_host":"api.anthropic.com","process_name":"curl.exe","process_pid":35588,"src_ip":"192.168.1.232","detection_method":"IP_RANGE","capture_mode":"DNS_SNI"}
+{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","os_type":"windows","timestamp_ms":1773568330095,"provider":"anthropic","provider_host":"api.anthropic.com","process_name":"curl.exe","process_pid":35588,"src_ip":"192.168.1.232","detection_method":"IP_RANGE","capture_mode":"DNS_SNI"}
 ```
 
 Fields like `agent_id` are populated after enrollment - in standalone mode they are empty.

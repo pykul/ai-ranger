@@ -108,7 +108,10 @@ fn query_full_image_path(pid: u32) -> Option<String> {
 
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()? };
 
-    let mut buf = [0u16; 260]; // MAX_PATH
+    /// Windows MAX_PATH - maximum length of a file path in the Win32 API.
+    const WIN_MAX_PATH: usize = 260;
+
+    let mut buf = [0u16; WIN_MAX_PATH];
     let mut len = buf.len() as u32;
     let ok = unsafe {
         QueryFullProcessImageNameW(
@@ -217,7 +220,7 @@ mod macos_proc {
 
     // libproc constants
     const PROC_PIDLISTFDS: c_int = 1;
-    const PROX_FDTYPE_SOCKET: u32 = 2;
+    const PROC_FDTYPE_SOCKET: u32 = 2;
     const PROC_PIDFDSOCKETINFO: c_int = 3;
 
     // sizeof(struct socket_fdinfo) on 64-bit macOS.
@@ -324,7 +327,7 @@ mod macos_proc {
             }
 
             for fd_info in &fds {
-                if fd_info.proc_fdtype != PROX_FDTYPE_SOCKET {
+                if fd_info.proc_fdtype != PROC_FDTYPE_SOCKET {
                     continue;
                 }
 
@@ -343,10 +346,15 @@ mod macos_proc {
                     continue;
                 }
 
-                // AF_INET = 2 or AF_INET6 = 30, SOCK_STREAM = 1
+                const SOCK_STREAM: i32 = 1;
+                const AF_INET_VAL: i32 = 2;
+                const AF_INET6_VAL: i32 = 30;
+
                 let soi_type = read_i32(&buf, OFF_SOI_TYPE);
                 let soi_family = read_i32(&buf, OFF_SOI_FAMILY);
-                if soi_type != 1 || (soi_family != 2 && soi_family != 30) {
+                if soi_type != SOCK_STREAM
+                    || (soi_family != AF_INET_VAL && soi_family != AF_INET6_VAL)
+                {
                     continue;
                 }
 
@@ -386,8 +394,11 @@ mod macos_proc {
         }
     }
 
+    /// Maximum buffer size for proc_name() results on macOS.
+    const PROC_NAME_BUFFER_SIZE: usize = 256;
+
     pub fn get_process_name(pid: u32) -> Option<String> {
-        let mut buf = [0u8; 256];
+        let mut buf = [0u8; PROC_NAME_BUFFER_SIZE];
         let ret = unsafe {
             proc_name(
                 pid as c_int,

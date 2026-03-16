@@ -16,6 +16,14 @@ mode = "dns-sni"
 # directory, then the compile-time bundled copy.
 # providers_url = "https://raw.githubusercontent.com/pykul/ai-ranger/main/providers/providers.toml"
 
+# ── Tuning parameters (all optional, defaults shown) ──────────────────────
+#
+# drain_interval_secs = 30          # How often the SQLite buffer uploads to the backend
+# drain_batch_size = 500            # Maximum events per upload batch
+# http_batch_size = 100             # Maximum events buffered per HTTP sink flush
+# webhook_batch_size = 100          # Default maximum events buffered per webhook sink flush
+# providers_fetch_timeout_secs = 10 # Timeout for fetching providers.toml from URL
+
 # ── Output sinks ────────────────────────────────────────────────────────────
 #
 # Events fan out to all configured outputs simultaneously.

@@ -16,6 +16,34 @@ use output::sink::EventSink;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// Capacity of the mpsc channel between the capture thread and the async dispatch loop.
+/// 1024 provides enough headroom for burst traffic without unbounded memory growth.
+const EVENT_CHANNEL_CAPACITY: usize = 1024;
+
+/// How long a connection_id remains in the dedup cache before expiring.
+/// 5 seconds is generous enough to handle the boundary-crossing scenario where DNS
+/// and SNI land in different 2-second buckets. See DECISIONS.md for full rationale.
+const DEDUP_CACHE_TTL_SECS: u64 = 5;
+
+/// Default timeout for fetching providers.toml from a remote URL at startup.
+/// 10 seconds balances startup latency against slow networks.
+const PROVIDERS_FETCH_TIMEOUT_SECS: u64 = 10;
+
+/// Default interval between SQLite buffer drain attempts.
+/// 30 seconds balances latency to the backend against unnecessary polling.
+pub const DRAIN_INTERVAL_SECS: u64 = 30;
+
+/// Maximum backoff interval for the drain loop after repeated failures.
+/// 5 minutes caps the worst-case delay before retrying a backend connection.
+pub const DRAIN_MAX_BACKOFF_SECS: u64 = 300;
+
+/// Multiplier for exponential backoff in the drain loop.
+const DRAIN_BACKOFF_MULTIPLIER: u64 = 2;
+
+/// Default maximum events read from the SQLite buffer per drain cycle.
+/// 500 balances memory usage against upload efficiency.
+pub const DRAIN_BATCH_SIZE: usize = 500;
+
 #[derive(Parser)]
 #[command(name = "ai-ranger", about = "Passive AI provider detection agent")]
 struct Cli {
@@ -51,7 +79,12 @@ async fn main() {
     });
 
     // Initialize provider registry (3-tier: fetch URL → local file → bundled)
-    let fetched_providers = fetch_providers_url(app_config.agent.providers_url.as_deref()).await;
+    let providers_timeout = app_config
+        .agent
+        .providers_fetch_timeout_secs
+        .unwrap_or(PROVIDERS_FETCH_TIMEOUT_SECS);
+    let fetched_providers =
+        fetch_providers_url(app_config.agent.providers_url.as_deref(), providers_timeout).await;
     let local_providers = identity::config::config_dir().map(|d| d.join("providers.toml"));
     classifier::providers::init_with_fetched(
         fetched_providers.as_deref(),
@@ -96,6 +129,7 @@ async fn main() {
         .unwrap_or_default();
     let machine_hostname = identity::config::machine_hostname();
     let os_username = identity::config::os_username();
+    let os_type = std::env::consts::OS.to_string();
 
     // Determine if any HTTP output is configured (activates SQLite buffer)
     let has_http_output = app_config
@@ -104,7 +138,14 @@ async fn main() {
         .any(|o| matches!(o, OutputConfig::Http { .. }));
 
     // Build sinks from config
-    let sinks = build_sinks(&app_config.outputs, &agent_id);
+    let http_batch = app_config.agent.http_batch_size.map(|v| v as usize);
+    let webhook_batch_default = app_config.agent.webhook_batch_size.map(|v| v as usize);
+    let sinks = build_sinks(
+        &app_config.outputs,
+        &agent_id,
+        http_batch,
+        webhook_batch_default,
+    );
     let sink: Arc<dyn EventSink> = if sinks.len() == 1 {
         sinks.into_iter().next().unwrap()
     } else {
@@ -131,12 +172,20 @@ async fn main() {
         None
     };
 
-    // Spawn buffer drain task (every 30s, reads up to 500 events, POSTs, deletes)
+    // Spawn buffer drain task
+    let drain_interval = app_config
+        .agent
+        .drain_interval_secs
+        .unwrap_or(DRAIN_INTERVAL_SECS);
+    let drain_batch = app_config
+        .agent
+        .drain_batch_size
+        .unwrap_or(DRAIN_BATCH_SIZE as u64) as usize;
     if let Some(ref buf) = event_buffer {
         let buf_clone = Arc::clone(buf);
         let sink_clone = Arc::clone(&sink);
         tokio::spawn(async move {
-            drain_loop(buf_clone, sink_clone).await;
+            drain_loop(buf_clone, sink_clone, drain_interval, drain_batch).await;
         });
     }
 
@@ -146,13 +195,14 @@ async fn main() {
 
     // Use a channel to pass events from the blocking capture thread to async sinks.
     // This avoids Handle::block_on() inside spawn_blocking, which can deadlock.
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<AiConnectionEvent>(1024);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<AiConnectionEvent>(EVENT_CHANNEL_CAPACITY);
 
     // Async task: receive events from channel, deduplicate, dispatch to sinks + buffer.
     let sink_for_dispatch = Arc::clone(&sink);
     let buffer_for_dispatch = event_buffer.clone();
     let dispatch_task = tokio::spawn(async move {
-        let mut dedup_cache = dedup::DedupCache::new(std::time::Duration::from_secs(5));
+        let mut dedup_cache =
+            dedup::DedupCache::new(std::time::Duration::from_secs(DEDUP_CACHE_TTL_SECS));
         while let Some(event) = rx.recv().await {
             if dedup_cache.is_duplicate(&event.connection_id) {
                 continue;
@@ -179,6 +229,7 @@ async fn main() {
             machine_hostname.clone(),
             os_username.clone(),
             agent_id.clone(),
+            os_type.clone(),
         ) {
             Ok(trace) => Some(trace),
             Err(e) => {
@@ -222,6 +273,7 @@ async fn main() {
                 agent_id: agent_id.clone(),
                 machine_hostname: machine_hostname.clone(),
                 os_username: os_username.clone(),
+                os_type: os_type.clone(),
                 connection_id,
                 timestamp_ms,
                 duration_ms: None,
@@ -257,7 +309,7 @@ async fn main() {
 
     // Flush remaining buffer on shutdown
     if let Some(ref buf) = event_buffer {
-        if let Err(e) = drain_once(buf, &sink).await {
+        if let Err(e) = drain_once(buf, &sink, drain_batch).await {
             eprintln!("[ai-ranger] Final drain error: {e}");
         }
     }
@@ -267,11 +319,11 @@ async fn main() {
 }
 
 /// Fetch providers.toml from a remote URL. Returns None on any failure.
-async fn fetch_providers_url(url: Option<&str>) -> Option<String> {
+async fn fetch_providers_url(url: Option<&str>, timeout_secs: u64) -> Option<String> {
     let url = url?;
     eprintln!("[ai-ranger] Fetching providers from {url}");
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
         .ok()?;
     match client.get(url).send().await {
@@ -299,17 +351,20 @@ async fn fetch_providers_url(url: Option<&str>) -> Option<String> {
     }
 }
 
-/// Background drain loop: every 30 seconds, read buffered events and POST them.
-/// Uses exponential backoff on failure (30s → 60s → 120s → max 300s).
-async fn drain_loop(buf: Arc<buffer::store::EventBuffer>, sink: Arc<dyn EventSink>) {
-    let mut interval_secs: u64 = 30;
-    let base_interval: u64 = 30;
-    let max_interval: u64 = 300;
+/// Background drain loop: periodically reads buffered events and POSTs them.
+/// Uses exponential backoff on failure up to DRAIN_MAX_BACKOFF_SECS.
+async fn drain_loop(
+    buf: Arc<buffer::store::EventBuffer>,
+    sink: Arc<dyn EventSink>,
+    base_interval: u64,
+    batch_size: usize,
+) {
+    let mut interval_secs: u64 = base_interval;
 
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
 
-        match drain_once(&buf, &sink).await {
+        match drain_once(&buf, &sink, batch_size).await {
             Ok(drained) => {
                 if drained > 0 {
                     eprintln!("[ai-ranger] Buffer drain: uploaded {drained} events");
@@ -318,20 +373,22 @@ async fn drain_loop(buf: Arc<buffer::store::EventBuffer>, sink: Arc<dyn EventSin
             }
             Err(e) => {
                 eprintln!("[ai-ranger] Buffer drain failed: {e}");
-                interval_secs = (interval_secs * 2).min(max_interval);
+                interval_secs =
+                    (interval_secs * DRAIN_BACKOFF_MULTIPLIER).min(DRAIN_MAX_BACKOFF_SECS);
                 eprintln!("[ai-ranger] Next drain attempt in {interval_secs}s (backoff)");
             }
         }
     }
 }
 
-/// Drain up to 500 events from the buffer, send via sink, delete on success.
+/// Drain up to `batch_size` events from the buffer, send via sink, delete on success.
 /// Returns the number of events successfully drained.
 async fn drain_once(
     buf: &buffer::store::EventBuffer,
     sink: &Arc<dyn EventSink>,
+    batch_size: usize,
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-    let batch = buf.read_batch(500)?;
+    let batch = buf.read_batch(batch_size)?;
     if batch.is_empty() {
         return Ok(0);
     }
@@ -350,7 +407,12 @@ async fn drain_once(
     Ok(batch.len())
 }
 
-fn build_sinks(outputs: &[OutputConfig], agent_id: &str) -> Vec<Arc<dyn EventSink>> {
+fn build_sinks(
+    outputs: &[OutputConfig],
+    agent_id: &str,
+    http_batch: Option<usize>,
+    webhook_batch_default: Option<usize>,
+) -> Vec<Arc<dyn EventSink>> {
     let mut sinks: Vec<Arc<dyn EventSink>> = Vec::new();
 
     for output in outputs {
@@ -365,6 +427,7 @@ fn build_sinks(outputs: &[OutputConfig], agent_id: &str) -> Vec<Arc<dyn EventSin
                 sinks.push(Arc::new(output::http::HttpSink::new(
                     url.clone(),
                     agent_id.to_string(),
+                    http_batch,
                 )));
             }
             OutputConfig::Webhook {
@@ -372,10 +435,12 @@ fn build_sinks(outputs: &[OutputConfig], agent_id: &str) -> Vec<Arc<dyn EventSin
                 headers,
                 batch_size,
             } => {
+                // Per-sink batch_size in config overrides the global webhook_batch_size.
+                let effective_batch = batch_size.or(webhook_batch_default);
                 sinks.push(Arc::new(output::webhook::WebhookSink::new(
                     url.clone(),
                     headers.clone(),
-                    *batch_size,
+                    effective_batch,
                 )));
             }
         }

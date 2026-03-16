@@ -1,3 +1,4 @@
+pub mod constants;
 pub mod dns;
 #[cfg(windows)]
 pub mod etw_dns;

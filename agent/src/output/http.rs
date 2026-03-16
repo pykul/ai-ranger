@@ -3,6 +3,10 @@ use crate::output::sink::EventSink;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
+/// Default number of events to buffer before flushing to the HTTP backend.
+/// 100 balances memory usage against the overhead of small HTTP requests.
+pub const DEFAULT_HTTP_BATCH_SIZE: usize = 100;
+
 /// POST protobuf-encoded EventBatch to the gateway.
 /// Events are batched internally and flushed periodically or when flush() is called.
 ///
@@ -17,13 +21,13 @@ pub struct HttpSink {
 }
 
 impl HttpSink {
-    pub fn new(url: String, agent_id: String) -> Self {
+    pub fn new(url: String, agent_id: String, batch_size: Option<usize>) -> Self {
         Self {
             url,
             agent_id,
             client: reqwest::Client::new(),
             batch: Mutex::new(Vec::new()),
-            batch_size: 100,
+            batch_size: batch_size.unwrap_or(DEFAULT_HTTP_BATCH_SIZE),
         }
     }
 
@@ -84,6 +88,7 @@ fn clone_event(e: &AiConnectionEvent) -> AiConnectionEvent {
         agent_id: e.agent_id.clone(),
         machine_hostname: e.machine_hostname.clone(),
         os_username: e.os_username.clone(),
+        os_type: e.os_type.clone(),
         connection_id: e.connection_id.clone(),
         timestamp_ms: e.timestamp_ms,
         duration_ms: e.duration_ms,

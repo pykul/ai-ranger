@@ -28,6 +28,7 @@ pub struct AiConnectionEvent {
     pub agent_id: String,
     pub machine_hostname: String,
     pub os_username: String,
+    pub os_type: String,
 
     // Dedup
     /// Hash of (src_ip, provider_host, timestamp_ms / 2000). Empty for

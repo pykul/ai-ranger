@@ -2,6 +2,12 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 
+/// Width of the time bucket used to group related capture events (DNS + SNI)
+/// into a single logical connection. 2 seconds handles realistic ETW DNS-Client
+/// latency (1-3s) without over-collapsing distinct connections.
+/// See DECISIONS.md "Why 2-second buckets" for the full rationale.
+pub const DEDUP_BUCKET_MS: i64 = 2000;
+
 /// Compute a connection_id that identifies a logical connection attempt.
 ///
 /// Key: (src_ip, provider_host, timestamp_ms / 2000).
@@ -20,7 +26,7 @@ pub fn compute_connection_id(src_ip: &str, provider_host: &str, timestamp_ms: i6
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     src_ip.hash(&mut hasher);
     provider_host.hash(&mut hasher);
-    (timestamp_ms / 2000).hash(&mut hasher);
+    (timestamp_ms / DEDUP_BUCKET_MS).hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
 
@@ -39,6 +45,7 @@ pub struct DedupCache {
 }
 
 impl DedupCache {
+    /// Create a new dedup cache. Entries older than `ttl` are swept on each lookup.
     pub fn new(ttl: Duration) -> Self {
         Self {
             seen: HashMap::new(),

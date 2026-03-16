@@ -16,6 +16,8 @@ pub struct EventBuffer {
 }
 
 impl EventBuffer {
+    /// Open or create the SQLite buffer database at the given path.
+    /// Creates the `events` table if it does not already exist.
     pub fn open(path: &Path) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -103,6 +105,7 @@ mod tests {
             agent_id: "test-agent".to_string(),
             machine_hostname: "test-host".to_string(),
             os_username: "testuser".to_string(),
+            os_type: "linux".to_string(),
             connection_id: String::new(),
             timestamp_ms: 1234567890,
             duration_ms: None,

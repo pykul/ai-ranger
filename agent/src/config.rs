@@ -13,11 +13,26 @@ pub struct AppConfig {
     pub outputs: Vec<OutputConfig>,
 }
 
+/// Agent-specific configuration from the `[agent]` section of config.toml.
+///
+/// All timing/sizing fields are optional. When absent, the hardcoded constant
+/// in the owning module is used as the default.
 #[derive(Deserialize, Debug)]
 pub struct AgentSection {
     #[serde(default = "default_mode")]
     pub mode: String,
     pub providers_url: Option<String>,
+    /// How often (seconds) the SQLite buffer uploads events to the backend.
+    pub drain_interval_secs: Option<u64>,
+    /// Maximum events read from the SQLite buffer per drain cycle.
+    pub drain_batch_size: Option<u64>,
+    /// Maximum events the HTTP sink buffers before flushing.
+    pub http_batch_size: Option<u64>,
+    /// Default maximum events the webhook sink buffers before flushing.
+    /// Per-sink `batch_size` in `[[outputs]]` overrides this.
+    pub webhook_batch_size: Option<u64>,
+    /// Timeout (seconds) for fetching providers.toml from `providers_url`.
+    pub providers_fetch_timeout_secs: Option<u64>,
 }
 
 impl Default for AgentSection {
@@ -25,6 +40,11 @@ impl Default for AgentSection {
         Self {
             mode: default_mode(),
             providers_url: None,
+            drain_interval_secs: None,
+            drain_batch_size: None,
+            http_batch_size: None,
+            webhook_batch_size: None,
+            providers_fetch_timeout_secs: None,
         }
     }
 }
@@ -33,6 +53,9 @@ fn default_mode() -> String {
     "dns-sni".to_string()
 }
 
+/// Output sink configuration from `[[outputs]]` entries in config.toml.
+///
+/// Each variant corresponds to a sink type. Events fan out to all configured outputs.
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
 pub enum OutputConfig {

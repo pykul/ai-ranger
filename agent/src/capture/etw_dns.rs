@@ -31,6 +31,15 @@ use ferrisetw::EventRecord;
 #[cfg(windows)]
 const TRACE_NAME: &str = "ai-ranger-dns";
 
+/// Microsoft-Windows-DNS-Client ETW provider GUID.
+/// Fires events for every DNS resolution through the Windows system DNS client.
+#[cfg(windows)]
+const MS_DNS_CLIENT_PROVIDER_GUID: &str = "1c95126e-7eea-49a9-a3fe-a378b03ddb4d";
+
+/// ETW event ID for "DNS query completed" from the DNS-Client provider.
+#[cfg(windows)]
+const ETW_DNS_QUERY_COMPLETED: u16 = 3008;
+
 /// Start the ETW DNS-Client trace. Runs in the background via ferrisetw's
 /// internal thread. Sends matched AI provider events through the provided channel.
 ///
@@ -41,6 +50,7 @@ pub fn start(
     machine_hostname: String,
     os_username: String,
     agent_id: String,
+    os_type: String,
 ) -> Result<UserTrace, Box<dyn std::error::Error + Send + Sync>> {
     // Clean up any stale session from a previous crash before attempting to start.
     // This is a no-op if no stale session exists.
@@ -48,12 +58,10 @@ pub fn start(
         .args(["stop", TRACE_NAME, "-ets"])
         .output();
 
-    // Microsoft-Windows-DNS-Client provider GUID
-    let dns_provider = Provider::by_guid("1c95126e-7eea-49a9-a3fe-a378b03ddb4d")
+    let dns_provider = Provider::by_guid(MS_DNS_CLIENT_PROVIDER_GUID)
         .add_callback(
             move |record: &EventRecord, schema_locator: &SchemaLocator| {
-                // Event ID 3008 = "DNS query completed"
-                if record.event_id() != 3008 {
+                if record.event_id() != ETW_DNS_QUERY_COMPLETED {
                     return;
                 }
 
@@ -90,6 +98,7 @@ pub fn start(
                     agent_id: agent_id.clone(),
                     machine_hostname: machine_hostname.clone(),
                     os_username: os_username.clone(),
+                    os_type: os_type.clone(),
                     connection_id,
                     timestamp_ms,
                     duration_ms: None,

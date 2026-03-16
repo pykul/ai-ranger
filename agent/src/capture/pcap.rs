@@ -14,18 +14,20 @@ pub struct PacketInfo {
 /// Parse an IPv4 packet and attempt to extract a hostname via SNI or DNS.
 /// Shared by all platform capture backends.
 fn parse_ipv4_packet(ip: &[u8]) -> Option<PacketInfo> {
-    if ip.len() < 20 {
+    use super::constants::*;
+
+    if ip.len() < IPV4_HEADER_MIN_SIZE {
         return None;
     }
-    let proto = ip[9];
-    let ihl = ((ip[0] & 0x0f) as usize) * 4;
+    let proto = ip[IPV4_PROTOCOL_OFFSET];
+    let ihl = ((ip[0] & IPV4_IHL_MASK) as usize) * 4;
     let src_ip = format!("{}.{}.{}.{}", ip[12], ip[13], ip[14], ip[15]);
     let dst_ip = format!("{}.{}.{}.{}", ip[16], ip[17], ip[18], ip[19]);
     let transport = ip.get(ihl..)?;
 
     match proto {
-        6 => parse_tcp_sni(transport, src_ip, dst_ip),
-        17 => parse_udp_dns(transport, src_ip, dst_ip),
+        PROTO_TCP => parse_tcp_sni(transport, src_ip, dst_ip),
+        PROTO_UDP => parse_udp_dns(transport, src_ip, dst_ip),
         _ => None,
     }
 }
@@ -39,20 +41,21 @@ fn parse_ipv4_packet(ip: &[u8]) -> Option<PacketInfo> {
 /// Non-TLS packets (SYN, ACK, data after handshake) return None - they are not
 /// connection-initiating events and should not generate duplicate detections.
 fn parse_tcp_sni(tcp: &[u8], src_ip: String, dst_ip: String) -> Option<PacketInfo> {
-    if tcp.len() < 20 {
+    use super::constants::*;
+
+    if tcp.len() < IPV4_HEADER_MIN_SIZE {
         return None;
     }
     let dst_port = u16::from_be_bytes([tcp[2], tcp[3]]);
-    if dst_port != 443 {
+    if dst_port != HTTPS_PORT {
         return None;
     }
     let src_port = u16::from_be_bytes([tcp[0], tcp[1]]);
     let doff = ((tcp[12] >> 4) as usize) * 4;
     let payload = tcp.get(doff..)?;
 
-    // Only process TLS handshake records (content type 0x16).
-    // Non-TLS or empty payloads (SYN, ACK, data) are skipped entirely.
-    if payload.is_empty() || payload[0] != 0x16 {
+    // Only process TLS handshake records. Non-TLS or empty payloads (SYN, ACK, data) are skipped.
+    if payload.is_empty() || payload[0] != TLS_CONTENT_TYPE_HANDSHAKE {
         return None;
     }
 
@@ -83,7 +86,7 @@ fn parse_udp_dns(udp: &[u8], src_ip: String, dst_ip: String) -> Option<PacketInf
         return None;
     }
     let src_port = u16::from_be_bytes([udp[0], udp[1]]);
-    if src_port != 53 {
+    if src_port != super::constants::DNS_PORT {
         return None;
     }
     let dst_port = u16::from_be_bytes([udp[2], udp[3]]);
@@ -114,36 +117,36 @@ fn parse_udp_dns(udp: &[u8], src_ip: String, dst_ip: String) -> Option<PacketInf
 /// header types cause the packet to be skipped gracefully.
 #[cfg(not(windows))] // Windows uses ETW DNS-Client for IPv6, not raw packet capture
 fn parse_ipv6_packet(ip6: &[u8]) -> Option<PacketInfo> {
-    if ip6.len() < 40 {
+    use super::constants::*;
+
+    if ip6.len() < IPV6_HEADER_SIZE {
         return None;
     }
-    if (ip6[0] >> 4) != 6 {
+    if (ip6[0] >> 4) != IPV6_VERSION {
         return None;
     }
 
     let src_ip = std::net::Ipv6Addr::from(<[u8; 16]>::try_from(&ip6[8..24]).ok()?).to_string();
-    let dst_ip = std::net::Ipv6Addr::from(<[u8; 16]>::try_from(&ip6[24..40]).ok()?).to_string();
+    let dst_ip = std::net::Ipv6Addr::from(<[u8; 16]>::try_from(&ip6[24..IPV6_HEADER_SIZE]).ok()?)
+        .to_string();
 
     // Walk extension header chain to find the transport protocol.
     let mut next_header = ip6[6];
-    let mut offset: usize = 40;
+    let mut offset: usize = IPV6_HEADER_SIZE;
 
     loop {
         match next_header {
-            6 => {
-                // TCP
+            PROTO_TCP => {
                 let transport = ip6.get(offset..)?;
                 return parse_tcp_sni(transport, src_ip, dst_ip);
             }
-            17 => {
-                // UDP
+            PROTO_UDP => {
                 let transport = ip6.get(offset..)?;
                 return parse_udp_dns(transport, src_ip, dst_ip);
             }
             // Known extension header types - walk past them.
             // Each has next-header in byte 0 and length in byte 1 (in 8-byte units, excluding first 8).
-            0 | 43 | 60 => {
-                // 0=Hop-by-Hop, 43=Routing, 60=Destination Options
+            IPV6_EXT_HOP_BY_HOP | IPV6_EXT_ROUTING | IPV6_EXT_DESTINATION => {
                 if offset + 2 > ip6.len() {
                     return None;
                 }
@@ -154,13 +157,12 @@ fn parse_ipv6_packet(ip6: &[u8]) -> Option<PacketInfo> {
                     return None;
                 }
             }
-            44 => {
-                // Fragment header - fixed 8 bytes
-                if offset + 8 > ip6.len() {
+            IPV6_EXT_FRAGMENT => {
+                if offset + IPV6_FRAGMENT_HEADER_SIZE > ip6.len() {
                     return None;
                 }
                 next_header = ip6[offset];
-                offset += 8;
+                offset += IPV6_FRAGMENT_HEADER_SIZE;
             }
             other => {
                 // Unknown extension header type - cannot walk past safely.
@@ -178,13 +180,15 @@ fn parse_ipv6_packet(ip6: &[u8]) -> Option<PacketInfo> {
 /// Used by Linux (AF_PACKET) and macOS (BPF) which both deliver raw Ethernet frames.
 #[cfg(unix)]
 fn parse_eth_frame(data: &[u8]) -> Option<PacketInfo> {
-    if data.len() < 14 {
+    use super::constants::*;
+
+    if data.len() < ETH_HEADER_SIZE {
         return None;
     }
     let ethertype = u16::from_be_bytes([data[12], data[13]]);
     match ethertype {
-        0x0800 => parse_ipv4_packet(&data[14..]),
-        0x86DD => parse_ipv6_packet(&data[14..]),
+        ETH_TYPE_IPV4 => parse_ipv4_packet(&data[ETH_HEADER_SIZE..]),
+        ETH_TYPE_IPV6 => parse_ipv6_packet(&data[ETH_HEADER_SIZE..]),
         _ => None,
     }
 }
@@ -284,7 +288,7 @@ mod platform {
             }
 
             eprintln!("[ai-ranger] Capturing on all interfaces (AF_PACKET raw socket)");
-            let mut buf = vec![0u8; 65536];
+            let mut buf = vec![0u8; super::super::constants::CAPTURE_BUFFER_SIZE];
             loop {
                 let n = recv(sock, buf.as_mut_ptr() as *mut c_void, buf.len(), 0);
                 if n <= 0 {
@@ -425,7 +429,8 @@ mod platform {
         // Query kernel buffer size
         let mut buf_len: u32 = 0;
         ioctl(fd, BIOCGBLEN, &mut buf_len);
-        let mut buf = vec![0u8; buf_len.max(4096) as usize];
+        let mut buf =
+            vec![0u8; buf_len.max(super::super::constants::BPF_MIN_BUFFER_SIZE as u32) as usize];
 
         loop {
             let n = read(fd, buf.as_mut_ptr() as *mut c_void, buf.len());
@@ -448,11 +453,13 @@ mod platform {
     ///   [12..16] bh_datalen (u32)
     ///   [16..18] bh_hdrlen  (u16) - actual header size (≥18, word-aligned)
     fn drain_bpf_buf<F: FnMut(PacketInfo)>(mut buf: &[u8], on_packet: &mut F) {
-        while buf.len() >= 18 {
+        use super::super::constants::BPF_HEADER_MIN_SIZE;
+
+        while buf.len() >= BPF_HEADER_MIN_SIZE {
             let caplen = u32::from_ne_bytes([buf[8], buf[9], buf[10], buf[11]]) as usize;
             let hdrlen = u16::from_ne_bytes([buf[16], buf[17]]) as usize;
 
-            if hdrlen < 18 || buf.len() < hdrlen + caplen {
+            if hdrlen < BPF_HEADER_MIN_SIZE || buf.len() < hdrlen + caplen {
                 break;
             }
 
@@ -476,7 +483,7 @@ mod platform {
     }
 
     unsafe fn open_bpf() -> Result<libc::c_int, Box<dyn std::error::Error>> {
-        for i in 0..16 {
+        for i in 0..super::super::constants::BPF_MAX_DEVICES {
             let path = CString::new(format!("/dev/bpf{i}")).unwrap();
             let fd = open(path.as_ptr(), O_RDWR);
             if fd >= 0 {
@@ -562,7 +569,10 @@ mod platform {
     ) -> Result<(), Box<dyn std::error::Error>> {
         unsafe {
             let mut wsa: WSADATA = std::mem::zeroed();
-            if WSAStartup(0x0202, &mut wsa) != 0 {
+            /// WinSock version 2.2 - required for raw socket support.
+            const WINSOCK_VERSION: u16 = 0x0202;
+
+            if WSAStartup(WINSOCK_VERSION, &mut wsa) != 0 {
                 return Err("WSAStartup failed".into());
             }
 
@@ -622,14 +632,16 @@ mod platform {
                 "[ai-ranger] Note: SIO_RCVALL captures IPv4 only. IPv6 connections are detected via ETW DNS-Client monitoring."
             );
 
-            let mut buf = vec![0u8; 65536];
+            let mut buf = vec![0u8; super::super::constants::CAPTURE_BUFFER_SIZE];
             loop {
                 let n = recv(sock, buf.as_mut_ptr() as *mut i8, buf.len() as i32, 0);
                 if n <= 0 {
                     break;
                 }
                 let data = &buf[..n as usize];
-                if data.len() >= 20 && (data[0] >> 4) == 4 {
+                if data.len() >= super::super::constants::IPV4_HEADER_MIN_SIZE
+                    && (data[0] >> 4) == super::super::constants::IPV4_VERSION
+                {
                     if let Some(info) = super::parse_ipv4_packet(data) {
                         on_packet(info);
                     }

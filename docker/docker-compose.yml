@@ -116,8 +116,7 @@ services:
   ingest-worker:
     build:
       context: ..
-      dockerfile: workers/Dockerfile
-      target: ingest
+      dockerfile: workers/cmd/ingest/Dockerfile
     restart: unless-stopped
     env_file: ../.env
     environment:
@@ -140,8 +139,7 @@ services:
   api-server:
     build:
       context: ..
-      dockerfile: workers/Dockerfile
-      target: api
+      dockerfile: workers/cmd/api/Dockerfile
     ports:
       - "${API_SERVER_PORT:-8081}:8081"
     env_file: ../.env

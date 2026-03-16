@@ -700,3 +700,17 @@ This is the standard approach for open source projects with credentials:
 contributors can `cp .env.example .env` and immediately have a working local
 environment, while production credentials are never exposed in version control.
 Docker Compose loads `.env` automatically via the `env_file` directive.
+
+### Separate Dockerfiles per Go service
+
+Each Go service (`cmd/ingest/` and `cmd/api/`) has its own Dockerfile rather than a
+single shared Dockerfile with multi-target stages. The build context is the repo root
+in both cases so shared `internal/` packages and `proto/gen/go` are accessible.
+
+This was chosen over the shared multi-target approach because:
+- Each service can be built, tagged, and pushed independently in CI.
+- Each image contains exactly one binary — no ambiguity about which binary runs.
+- In Kubernetes, each service maps to a separate Deployment with its own image,
+  scaling, and resource limits. Separate images are a prerequisite for this.
+- The shared `Dockerfile.dev` with CompileDaemon handles the dev hot-reload case
+  where both services need the Go toolchain.

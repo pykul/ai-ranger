@@ -1,0 +1,12 @@
+FROM golang:1.26-alpine
+
+RUN go install github.com/githubnemo/CompileDaemon@latest
+WORKDIR /app
+
+# Copy proto generated code so the replace directive in go.mod resolves.
+COPY proto/gen/go /proto/gen/go
+
+# Copy workers source.
+COPY workers/go.mod workers/go.sum ./
+RUN go mod download
+COPY workers/ .

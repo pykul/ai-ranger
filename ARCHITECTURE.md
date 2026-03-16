@@ -162,11 +162,14 @@ ai-ranger/
 │
 ├── workers/                    # Go - async processing and query API
 │   ├── Makefile
+│   ├── Dockerfile.dev          # Dev image with CompileDaemon for hot reload
 │   ├── cmd/
 │   │   ├── ingest/
-│   │   │   └── main.go         # Ingest worker binary entry point
+│   │   │   ├── main.go         # Ingest worker binary entry point
+│   │   │   └── Dockerfile      # Produces a single-binary image for the ingest worker
 │   │   └── api/
-│   │       └── main.go         # Query API binary entry point
+│   │       ├── main.go         # Query API binary entry point
+│   │       └── Dockerfile      # Produces a single-binary image for the API server
 │   ├── internal/
 │   │   ├── models/
 │   │   │   └── models.go       # GORM structs mirroring gateway SQLAlchemy models

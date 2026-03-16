@@ -56,7 +56,7 @@ a k8s Job for migrations in production.
 
 | Property | Value |
 |----------|-------|
-| Image | Built from `workers/Dockerfile` (target: `ingest`) |
+| Image | Built from `workers/cmd/ingest/Dockerfile` |
 | Port | None (no HTTP server) |
 | Health endpoint | None (use process liveness check) |
 | Liveness probe | Process check — the worker exits on fatal errors |
@@ -76,7 +76,7 @@ a k8s Job for migrations in production.
 
 | Property | Value |
 |----------|-------|
-| Image | Built from `workers/Dockerfile` (target: `api`) |
+| Image | Built from `workers/cmd/api/Dockerfile` |
 | Port | 8081 |
 | Health endpoint | `GET /health` → `{"status": "ok", "service": "api"}` |
 | Readiness probe | `httpGet: { path: /health, port: 8081 }` |

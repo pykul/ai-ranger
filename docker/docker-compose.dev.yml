@@ -18,8 +18,7 @@ services:
   ingest-worker:
     build:
       context: ..
-      dockerfile: workers/Dockerfile
-      target: dev
+      dockerfile: workers/Dockerfile.dev
     env_file: ../.env
     volumes:
       - ../workers:/app
@@ -31,8 +30,7 @@ services:
   api-server:
     build:
       context: ..
-      dockerfile: workers/Dockerfile
-      target: dev
+      dockerfile: workers/Dockerfile.dev
     env_file: ../.env
     volumes:
       - ../workers:/app

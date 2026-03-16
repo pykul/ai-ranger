@@ -17,20 +17,16 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_real_agent_enrollment(agent_binary, gateway_client):
+def test_real_agent_enrollment(agent_binary):
     """The agent binary successfully enrolls against the local gateway."""
     from conftest import GATEWAY_URL, SEED_TOKEN
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        env = os.environ.copy()
-        env["XDG_CONFIG_HOME"] = tmpdir
-
-        result = subprocess.run(
-            [agent_binary, "--enroll", "--token", SEED_TOKEN, "--backend", GATEWAY_URL],
-            capture_output=True, text=True, env=env, timeout=15,
-        )
-        assert result.returncode == 0, f"Enrollment failed: {result.stderr}"
-        assert "Enrolled as" in result.stderr
+    result = subprocess.run(
+        [agent_binary, "--enroll", "--token", SEED_TOKEN, "--backend", GATEWAY_URL],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 0, f"Enrollment failed: {result.stderr}"
+    assert "Enrolled as" in result.stderr
 
 
 @pytest.mark.network

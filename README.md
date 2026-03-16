@@ -212,11 +212,53 @@ A default `config.toml` with all available options documented ships at `agent/co
 ```bash
 git clone https://github.com/pykul/ai-ranger
 cd ai-ranger
-make dev
+cp .env.example .env    # create local environment config
+make dev                # start postgres, clickhouse, rabbitmq, gateway, workers
 ```
 
-Then open `http://localhost:3000`. Generate an enrollment token from the Fleet page,
-then install the agent on any machine using the one-liner above.
+Services available after startup:
+
+| Service | URL |
+|---------|-----|
+| Gateway Swagger UI | http://localhost:8080/docs |
+| API Server Swagger UI | http://localhost:8081/docs |
+| RabbitMQ Management | http://localhost:15672 |
+| Gateway Health | http://localhost:8080/health |
+| API Health | http://localhost:8081/health |
+
+### Enrolling a local agent
+
+The dev environment seeds a test enrollment token (`tok_test_dev`) automatically.
+Build the agent and enroll it against the local backend:
+
+```bash
+# Build the agent
+cargo build --manifest-path agent/Cargo.toml
+
+# Enroll (requires root for raw socket access)
+sudo ./agent/target/debug/ai-ranger --enroll --token=tok_test_dev --backend=http://localhost:8080
+
+# Run the agent — it remembers the enrollment and sends events to the backend
+sudo ./agent/target/debug/ai-ranger
+```
+
+After enrollment, the agent stores its identity in `~/.config/ai-ranger/config.json`
+(Linux), `~/Library/Application Support/ai-ranger/config.json` (macOS), or
+`%APPDATA%\ai-ranger\config.json` (Windows). Subsequent runs use that identity
+automatically — no need to pass `--token` or `--backend` again.
+
+Trigger some AI provider traffic to verify end-to-end:
+
+```bash
+curl -s https://api.openai.com > /dev/null
+curl -s https://api.anthropic.com > /dev/null
+```
+
+Then check the fleet endpoint to see your enrolled agent:
+
+```bash
+curl -s http://localhost:8081/v1/dashboard/fleet | python3 -m json.tool
+```
 
 ---
 

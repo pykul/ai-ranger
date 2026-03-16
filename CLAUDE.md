@@ -34,9 +34,9 @@ cargo test -p ai-ranger test_name  # Run a single test
 
 Running the agent binary requires root/Administrator (raw socket access for packet capture).
 
-## Current State: Phase 1 complete, Phase 2 in progress
+## Current State: Phase 2 complete, Phase 3 next
 
-The Rust agent is complete with all Phase 1 deliverables: SNI + DNS capture pipeline, ETW DNS-Client on Windows, provider classifier with 19 providers, process resolver on all platforms, all output sinks (stdout, file, http, webhook, fanout), enrollment flow, SQLite buffer with drain loop, and installer scripts. The backend components (gateway, workers, dashboard, proto, docker) described in ARCHITECTURE.md are not yet created - they are Phase 2. The root Makefile has `dev`, `proto`, `down`, and `logs` targets commented out for this reason. When the full stack lands, `make dev` starts everything via Docker Compose and the dashboard is at `http://localhost:3000`.
+The Rust agent is complete with all Phase 1 deliverables plus the Phase 2 protobuf switch. The full backend is operational: FastAPI gateway (ingest, enrollment, providers endpoints), Go workers (ingest consumer writing to ClickHouse, API server with dashboard and admin endpoints), Docker Compose stack (Postgres, ClickHouse, RabbitMQ, gateway, ingest-worker, api-server), protobuf schema with generated code for Python/Go/Rust, integration test suite, and CI pipeline. `make dev` starts everything via Docker Compose. The dashboard (Phase 3) is not yet created.
 
 ## Architecture
 

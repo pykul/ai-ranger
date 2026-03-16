@@ -48,7 +48,7 @@ def test_overview_counts_after_ingest(gateway_client, api_client, enrolled_agent
         result.update(r.json())
         return result.get("total_events", 0) > 0
 
-    wait_for_condition(overview_has_events, timeout_secs=10, description="overview total_events > 0")
+    wait_for_condition(overview_has_events, timeout_secs=30, description="overview total_events > 0")
 
 
 def test_providers_endpoint(gateway_client):

@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/pykul/ai-ranger/workers/internal/constants"
 	"github.com/pykul/ai-ranger/workers/internal/models"
 )
 
@@ -55,7 +56,7 @@ func (s *PostgresStore) DeleteToken(id uuid.UUID) error {
 
 // RevokeAgent sets an agent's status to "revoked".
 func (s *PostgresStore) RevokeAgent(id uuid.UUID) error {
-	result := s.db.Model(&models.Agent{}).Where("id = ?", id).Update("status", "revoked")
+	result := s.db.Model(&models.Agent{}).Where("id = ?", id).Update("status", constants.AgentStatusRevoked)
 	if result.Error != nil {
 		return fmt.Errorf("revoke agent: %w", result.Error)
 	}

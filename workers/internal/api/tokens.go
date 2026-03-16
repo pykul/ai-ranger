@@ -63,9 +63,7 @@ func tokenCreate(pgStore *store.PostgresStore) http.HandlerFunc {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(TokenCreateResponse{
+		writeJSON(w, http.StatusCreated, TokenCreateResponse{
 			ID:      token.ID.String(),
 			OrgID:   token.OrgID.String(),
 			MaxUses: token.MaxUses,

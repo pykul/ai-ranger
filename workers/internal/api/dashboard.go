@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/pykul/ai-ranger/workers/internal/store"
@@ -22,8 +21,7 @@ func dashboardOverview(chStore *store.ClickHouseStore) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(stats)
+		writeJSON(w, http.StatusOK,stats)
 	}
 }
 
@@ -42,8 +40,7 @@ func dashboardProviders(chStore *store.ClickHouseStore) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(providers)
+		writeJSON(w, http.StatusOK,providers)
 	}
 }
 
@@ -62,8 +59,7 @@ func dashboardUsers(chStore *store.ClickHouseStore) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(users)
+		writeJSON(w, http.StatusOK,users)
 	}
 }
 
@@ -82,7 +78,6 @@ func dashboardTraffic(chStore *store.ClickHouseStore) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(traffic)
+		writeJSON(w, http.StatusOK,traffic)
 	}
 }

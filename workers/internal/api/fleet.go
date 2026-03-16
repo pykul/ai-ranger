@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/pykul/ai-ranger/workers/internal/store"
@@ -22,7 +21,6 @@ func fleetList(pgStore *store.PostgresStore) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(agents)
+		writeJSON(w, http.StatusOK, agents)
 	}
 }

@@ -59,6 +59,35 @@ const RouteAdminAgentsDelete = "/v1/admin/agents/{id}"
 // RouteHealth is the health check endpoint for readiness/liveness probes.
 const RouteHealth = "/health"
 
+// -- Agent status -------------------------------------------------------------
+
+// AgentStatusActive is the status of a healthy enrolled agent.
+const AgentStatusActive = "active"
+
+// AgentStatusRevoked is the status of a revoked agent that can no longer submit events.
+const AgentStatusRevoked = "revoked"
+
+// -- ClickHouse enum values ---------------------------------------------------
+// These must match the Enum8 values in docker/clickhouse/init.sql.
+
+// DetectionMethodSNI is the ClickHouse enum value for SNI-based detection.
+const DetectionMethodSNI = "sni"
+
+// DetectionMethodDNS is the ClickHouse enum value for DNS-based detection.
+const DetectionMethodDNS = "dns"
+
+// DetectionMethodIPRange is the ClickHouse enum value for IP range fallback detection.
+const DetectionMethodIPRange = "ip_range"
+
+// DetectionMethodTCPHeuristic is the ClickHouse enum value for TCP heuristic detection (future).
+const DetectionMethodTCPHeuristic = "tcp_heuristic"
+
+// CaptureModeDNSSNI is the ClickHouse enum value for passive DNS/SNI capture mode.
+const CaptureModeDNSSNI = "dns_sni"
+
+// CaptureModeMITM is the ClickHouse enum value for MITM capture mode (Phase 5+).
+const CaptureModeMITM = "mitm"
+
 // -- Retry --------------------------------------------------------------------
 
 // ConsumerPrefetchCount is the number of messages to prefetch from RabbitMQ.

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 )
 
@@ -20,9 +19,7 @@ type healthResponse struct {
 // @Router       /health [get]
 func healthCheck() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(healthResponse{
+		writeJSON(w, http.StatusOK, healthResponse{
 			Status:  "ok",
 			Service: "api",
 		})

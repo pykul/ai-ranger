@@ -7,7 +7,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from constants import AUTH_SCHEME
+from constants import AGENT_STATUS_ACTIVE, AUTH_SCHEME
 from database import async_session
 from models.agent import Agent
 
@@ -52,7 +52,7 @@ async def verify_bearer_token(
             detail="Unknown agent_id.",
         )
 
-    if agent.status != "active":
+    if agent.status != AGENT_STATUS_ACTIVE:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Agent has been revoked.",

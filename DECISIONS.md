@@ -85,9 +85,9 @@ Go workers), and adding a field to AiConnectionEvent is a single .proto change t
 propagates everywhere. The generated code for all three languages is committed to the
 repo so contributors do not need protoc installed.
 
-Note: the HttpSink currently sends JSON with a comment marking it for protobuf in
-Phase 2. The protobuf infrastructure is in place but the HTTP transport has not been
-switched yet.
+The HttpSink was switched from JSON to protobuf encoding in Phase 2. Events are
+serialized as a protobuf EventBatch using prost-generated types and sent with
+Content-Type: application/x-protobuf.
 
 ---
 

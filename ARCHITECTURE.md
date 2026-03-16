@@ -189,7 +189,7 @@ ai-ranger/
 │   ├── proto/                  # Symlink to proto/gen/go
 │   └── go.mod
 │
-├── dashboard/                  # React + TypeScript
+├── dashboard/                  # React + TypeScript (Phase 3 — not yet created)
 │   ├── Makefile
 │   ├── src/
 │   │   ├── pages/
@@ -214,7 +214,7 @@ ai-ranger/
 │   └── rabbitmq/
 │       └── definitions.json    # Pre-configured queues and exchanges
 │
-├── docs/                       # Docusaurus
+├── docs/                       # Docusaurus (Phase 3+ — not yet created)
 │   └── docs/
 │       ├── getting-started.md
 │       ├── agent/

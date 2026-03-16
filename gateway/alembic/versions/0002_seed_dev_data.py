@@ -28,6 +28,9 @@ TOKEN_ID = "00000000-0000-0000-0000-000000000002"
 
 
 def upgrade() -> None:
+    # Note: os.environ is used intentionally here. Alembic migrations run in a
+    # separate process context where FastAPI's Settings class is not available.
+    # This is an accepted exception to the "no os.environ outside config" rule.
     if os.environ.get("ENVIRONMENT") != "development":
         return
 
@@ -55,7 +58,7 @@ def upgrade() -> None:
             org_id=ORG_ID,
             token_hash=token_hash,
             label="Development token (unlimited uses)",
-            max_uses=2147483647,
+            max_uses=2147483647,  # UNLIMITED_USES — max 32-bit signed int
             used_count=0,
         )
     )

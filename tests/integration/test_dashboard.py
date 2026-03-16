@@ -23,15 +23,22 @@ def test_overview_counts_after_ingest(gateway_client, api_client, enrolled_agent
     batch = make_test_batch(agent_id, [event])
     body = encode_batch(batch)
 
-    resp = gateway_client.post(
-        "/v1/ingest",
-        content=body,
-        headers={
-            "Content-Type": "application/x-protobuf",
-            "Authorization": f"Bearer {agent_id}",
-        },
-    )
-    assert resp.status_code == 200
+    # The gateway's RabbitMQ connection may need to reconnect after idle.
+    # Retry the ingest POST a few times.
+    from helpers.wait import wait_for_condition
+
+    def ingest_succeeds() -> bool:
+        r = gateway_client.post(
+            "/v1/ingest",
+            content=body,
+            headers={
+                "Content-Type": "application/x-protobuf",
+                "Authorization": f"Bearer {agent_id}",
+            },
+        )
+        return r.status_code == 200
+
+    wait_for_condition(ingest_succeeds, timeout_secs=15, description="ingest POST 200")
 
     wait_for_clickhouse_event(clickhouse_client, agent_id, "anthropic")
 

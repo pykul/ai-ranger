@@ -86,7 +86,7 @@ To build and develop AI Ranger, you need the following tools:
 
 | Tool | Minimum Version | Purpose |
 |------|----------------|---------|
-| Docker + Docker Compose | Docker 24+ | Running the full backend stack |
+| Docker + Docker Compose | Docker 24+ | Running the full platform stack |
 | Rust (via rustup) | 1.75+ (see `agent/Cargo.toml`) | Building the agent |
 | Go | 1.22+ (see `workers/go.mod`) | Building the workers |
 | Python | 3.12+ | Running the gateway |
@@ -120,7 +120,7 @@ protoc --version          # libprotoc 3+
 
 ## Quick start
 
-### 1. Start the backend
+### 1. Start the platform
 
 ```bash
 git clone https://github.com/pykul/ai-ranger
@@ -133,9 +133,13 @@ Wait for all services to start. You should see health checks passing for all con
 
 | Service | URL |
 |---------|-----|
+| Dashboard | http://localhost (via nginx) |
 | Gateway Swagger UI | http://localhost:8080/docs |
 | API Server Swagger UI | http://localhost:8081/docs |
 | RabbitMQ Management | http://localhost:15672 |
+
+All services are accessible through nginx at `http://localhost`. The gateway and API
+server also expose direct ports for debugging.
 
 ### 2. Build, enroll, and run the agent
 
@@ -147,10 +151,10 @@ capturing in one step:
 cargo build --manifest-path agent/Cargo.toml
 
 # Linux / macOS
-sudo ./target/debug/ai-ranger --token=tok_test_dev --backend=http://localhost:8080
+sudo ./target/debug/ai-ranger --token=tok_test_dev --backend=http://localhost/ingest
 
 # Windows (run as Administrator)
-.\target\debug\ai-ranger.exe --token=tok_test_dev --backend=http://localhost:8080
+.\target\debug\ai-ranger.exe --token=tok_test_dev --backend=http://localhost/ingest
 ```
 
 On first run, the agent enrolls with the backend and begins capturing immediately.
@@ -174,10 +178,10 @@ Check that events flowed through the pipeline:
 
 ```bash
 # See your enrolled agent
-curl -s http://localhost:8081/v1/dashboard/fleet | python3 -m json.tool
+curl -s http://localhost/api/v1/dashboard/fleet | python3 -m json.tool
 
 # See detected events (once ClickHouse has ingested)
-curl -s http://localhost:8081/v1/dashboard/overview | python3 -m json.tool
+curl -s http://localhost/api/v1/dashboard/overview | python3 -m json.tool
 ```
 
 ---
@@ -234,16 +238,16 @@ Each release includes SHA256 checksums in `checksums.txt`. Verify before running
 sha256sum -c checksums.txt --ignore-missing
 ```
 
-### Enrolling with a production backend
+### Enrolling with a production instance
 
 Generate an enrollment token from the admin API, then start the agent:
 
 ```bash
 # Linux / macOS
-ai-ranger --token=tok_your_token --backend=https://your-instance.com
+ai-ranger --token=tok_your_token --backend=https://your-instance.com/ingest
 
 # Windows (run as Administrator)
-ai-ranger.exe --token=tok_your_token --backend=https://your-instance.com
+ai-ranger.exe --token=tok_your_token --backend=https://your-instance.com/ingest
 ```
 
 The agent enrolls with the backend on first run and starts capturing immediately.
@@ -254,7 +258,7 @@ For scripted deployments where enrollment and daemon start are separate steps
 (e.g. installer scripts), use `--enroll` to enroll and exit without capturing:
 
 ```bash
-ai-ranger --enroll --token=tok_your_token --backend=https://your-instance.com
+ai-ranger --enroll --token=tok_your_token --backend=https://your-instance.com/ingest
 # then start as daemon separately
 ```
 
@@ -333,11 +337,12 @@ destinations. Multiple sinks can be active at once, configured in `config.toml`.
 how teams with existing observability infrastructure connect AI Ranger to Datadog, Splunk,
 or any HTTPS endpoint without running the backend at all.
 
-The backend is optional and self-hosted. It consists of a Python/FastAPI gateway that
-receives agent batches and publishes them to RabbitMQ, Go workers that consume from
-the queue and write to storage, and a React dashboard. Postgres holds identity data
-(organizations, agents, enrollment tokens) with schema managed via Alembic migrations.
-ClickHouse holds the event timeseries. The full stack starts with `make dev`.
+The platform is self-hosted. It consists of nginx as the single entry point, a
+Python/FastAPI gateway that receives agent batches and publishes them to RabbitMQ,
+Go workers that consume from the queue and write to storage, and a React dashboard.
+Postgres holds identity data (organizations, agents, enrollment tokens) with schema
+managed via Alembic migrations. ClickHouse holds the event timeseries. The full
+stack starts with `make dev`.
 
 When the backend sink is configured, the agent buffers events locally in SQLite and
 uploads batches every 30 seconds. If the backend is unreachable, events accumulate

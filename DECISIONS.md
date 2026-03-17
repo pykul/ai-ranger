@@ -838,3 +838,31 @@ password resets is out of scope for Phase 3. The reasoning:
   JWT infrastructure built now carries forward unchanged: the only change is
   where the credential check happens (database lookup instead of env var
   comparison).
+
+### nginx as single ingress point
+
+All external traffic routes through a single nginx reverse proxy. The
+alternatives considered:
+
+- **Direct port exposure for each service**: simpler in development but
+  creates operational complexity in production (multiple ports to manage,
+  TLS on each service, CORS between dashboard and API).
+- **Traefik or Caddy**: more features but heavier dependencies. nginx is
+  universally understood, available as a 5MB Alpine image, and handles the
+  three routing rules we need without any dynamic configuration.
+- **API gateway (Kong, Ambassador)**: over-engineered for an internal tool
+  with three routes.
+
+nginx provides: single TLS termination point, CORS elimination (dashboard and
+API share the same origin), clean URL structure (`/api/` for the query API,
+`/ingest/` for agent traffic), and SPA routing fallback. In development, direct
+ports remain exposed on each service for debugging and integration tests.
+
+### shadcn/ui with shadcn charts over Tremor
+
+Tremor was the original charting library choice but was rejected because it
+requires Tailwind v3 and has not been updated for v4. shadcn/ui provides a
+complete component system (buttons, cards, tables, inputs, sidebar) and a
+charts module built on Recharts, all native to Tailwind v4. Using one
+ecosystem (shadcn) instead of two (shadcn + Tremor) reduces dependency
+conflicts and maintenance surface.

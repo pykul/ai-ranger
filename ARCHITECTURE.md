@@ -189,17 +189,24 @@ ai-ranger/
 │   ├── proto/                  # Symlink to proto/gen/go
 │   └── go.mod
 │
-├── dashboard/                  # React + TypeScript (Phase 3 — not yet created)
+├── dashboard/                  # React + TypeScript dashboard
 │   ├── Makefile
+│   ├── Dockerfile              # Multi-stage: node build → nginx serve static
+│   ├── nginx.conf              # SPA fallback for client-side routing
 │   ├── src/
 │   │   ├── pages/
 │   │   │   ├── Overview.tsx        # Fleet overview landing page
+│   │   │   ├── Fleet.tsx           # Enrolled agents table
 │   │   │   ├── Providers.tsx       # Provider breakdown
 │   │   │   ├── Users.tsx           # Per-user activity table
-│   │   │   ├── Traffic.tsx         # Traffic timeseries charts
-│   │   │   └── Fleet.tsx           # Agent management + token generation
-│   │   ├── components/
-│   │   └── api/                    # TanStack Query hooks
+│   │   │   ├── Events.tsx          # Raw event search
+│   │   │   ├── Tokens.tsx          # Enrollment token management
+│   │   │   └── Login.tsx           # Login page (production only)
+│   │   ├── layouts/
+│   │   │   └── DashboardLayout.tsx # Sidebar + header + content
+│   │   ├── lib/                    # API client, auth, utilities
+│   │   ├── hooks/                  # React hooks (auth context)
+│   │   └── components/ui/          # shadcn/ui components
 │   └── package.json
 │
 ├── providers/
@@ -207,14 +214,18 @@ ai-ranger/
 │
 ├── docker/
 │   ├── Makefile                # Targets for bring-up, teardown, logs, reset
-│   ├── docker-compose.yml      # Full stack - one command
-│   ├── docker-compose.dev.yml  # Dev overrides - mounts source, hot reload
+│   ├── docker-compose.yml      # Base stack (all services)
+│   ├── docker-compose.dev.yml  # Dev overrides (source mounts, hot reload)
+│   ├── docker-compose.prod.yml # Production overrides (TLS, no direct ports)
+│   ├── nginx/
+│   │   ├── nginx.dev.conf      # Dev routing (port 80, no TLS)
+│   │   └── nginx.prod.conf     # Production routing (port 443, TLS)
 │   ├── clickhouse/
 │   │   └── init.sql            # ClickHouse schema (plain SQL - no ORM for ClickHouse)
 │   └── rabbitmq/
 │       └── definitions.json    # Pre-configured queues and exchanges
 │
-├── docs/                       # Docusaurus (Phase 3+ — not yet created)
+├── docs/                       # Docusaurus (Phase 4+)
 │   └── docs/
 │       ├── getting-started.md
 │       ├── agent/
@@ -320,6 +331,33 @@ ai-ranger/
                                    │  only               │
                                    └────────────────────┘
 ```
+
+---
+
+## nginx - Single Ingress Point
+
+All external traffic enters through nginx. Internal services are not exposed
+directly in production. In development, direct ports remain available for
+debugging and integration tests.
+
+### Routing table
+
+| Path prefix | Upstream | Strip prefix | Description |
+|---|---|---|---|
+| `/` | `dashboard:3000` | No | React SPA (static files + SPA fallback) |
+| `/api/` | `api-server:8081` | Yes (strip `/api`) | Go Query API (dashboard data, auth) |
+| `/ingest/` | `gateway:8080` | Yes (strip `/ingest`) | FastAPI gateway (agent enrollment + ingest) |
+
+In production, agents point their `--backend` flag to `https://yourdomain.com/ingest`
+instead of directly to the gateway port. nginx handles TLS termination.
+
+### nginx configuration files
+
+| File | Environment | Description |
+|---|---|---|
+| `docker/nginx/nginx.dev.conf` | Development | Port 80, no TLS |
+| `docker/nginx/nginx.prod.conf` | Production | Port 443 with TLS, port 80 redirects to 443 |
+| `dashboard/nginx.conf` | Both | Dashboard container internal config (SPA fallback) |
 
 ---
 
@@ -542,7 +580,7 @@ pub trait EventSink: Send + Sync {
 **Built-in implementations (ship with agent):**
 - `StdoutSink` - default, no config required
 - `FileSink` - write JSON lines to a file
-- `HttpSink` - POST JSON batches to the gateway (protobuf planned for Phase 2)
+- `HttpSink` - POST protobuf batches to the gateway
 - `WebhookSink` - POST JSON to any arbitrary URL with configurable headers
 - `FanoutSink` - wraps multiple sinks, sends to all concurrently
 
@@ -1232,6 +1270,9 @@ Ingest endpoints are served by the FastAPI gateway (Swagger UI at `http://localh
 All query and management endpoints are served by the Go API server (Swagger UI at
 `http://localhost:8081/docs`). The dashboard never talks to the gateway directly.
 
+In development, these are also accessible via nginx: `http://localhost/ingest/docs`
+for the gateway and `http://localhost/api/docs` for the API server.
+
 ```
 # FastAPI Gateway - agent-facing only (Swagger: http://localhost:8080/docs)
 POST /v1/ingest              -> receive protobuf EventBatch, enqueue to RabbitMQ
@@ -1321,67 +1362,23 @@ cd ai-ranger
 make dev
 ```
 
-Services started:
+Services started (8 total):
 
-```yaml
-# docker/docker-compose.yml
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: ranger
-      POSTGRES_USER: ranger
-      POSTGRES_PASSWORD: ranger
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    # No init.sql - Postgres schema is managed by Alembic migrations.
-    # The gateway runs `alembic upgrade head` on startup.
+| Service | Role |
+|---|---|
+| `nginx` | Single entry point, routes `/` to dashboard, `/api/` to API server, `/ingest/` to gateway |
+| `postgres` | Identity data (orgs, agents, tokens), schema via Alembic |
+| `clickhouse` | Event timeseries storage |
+| `rabbitmq` | Message queue between gateway and ingest workers |
+| `gateway` | FastAPI agent-facing ingest and enrollment |
+| `ingest-worker` | Consumes RabbitMQ, writes to ClickHouse and Postgres |
+| `api-server` | Go Query API for dashboard data and admin operations |
+| `dashboard` | React SPA served by nginx |
 
-  clickhouse:
-    image: clickhouse/clickhouse-server:24
-    volumes:
-      - clickhouse_data:/var/lib/clickhouse
-      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/config.xml
-
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    ports:
-      - "5672:5672"     # AMQP
-      - "15672:15672"   # Management UI at localhost:15672
-    volumes:
-      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
-
-  gateway:
-    build: ../gateway
-    ports:
-      - "8080:8080"
-    environment:
-      DATABASE_URL: postgres://ranger:ranger@postgres/ranger
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-    depends_on: [postgres, rabbitmq]
-
-  workers:
-    build: ../workers
-    ports:
-      - "9090:9090"     # Go query API
-    environment:
-      DATABASE_URL: postgres://ranger:ranger@postgres/ranger
-      CLICKHOUSE_URL: http://clickhouse:8123
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-    depends_on: [postgres, clickhouse, rabbitmq]
-
-  dashboard:
-    build: ../dashboard
-    ports:
-      - "3000:3000"
-    environment:
-      VITE_API_URL: http://localhost:9090
-    depends_on: [workers]
-
-volumes:
-  postgres_data:
-  clickhouse_data:
-```
+Configuration is split across three compose files:
+- `docker-compose.yml` - base (all services)
+- `docker-compose.dev.yml` - dev overrides (source mounts, hot reload)
+- `docker-compose.prod.yml` - production overrides (TLS, no direct port exposure)
 
 ---
 

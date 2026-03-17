@@ -8,11 +8,28 @@
 # All credentials and configuration come from ../.env (see .env.example).
 #
 # After startup:
+#   Dashboard:           http://localhost (via nginx)
 #   Gateway Swagger UI:  http://localhost:8080/docs
 #   Go API Swagger UI:   http://localhost:8081/docs
 #   RabbitMQ Management: http://localhost:15672
 
 services:
+
+  # -- Reverse proxy -----------------------------------------------------------
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      gateway:
+        condition: service_healthy
+      api-server:
+        condition: service_healthy
+      dashboard:
+        condition: service_started
 
   # -- Data stores ---------------------------------------------------------
 
@@ -168,6 +185,14 @@ services:
     #   resources:
     #     limits: { cpus: "1", memory: "256M" }
     #     reservations: { cpus: "0.25", memory: "64M" }
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: dashboard/Dockerfile
+    depends_on:
+      api-server:
+        condition: service_healthy
 
 volumes:
   postgres-data:

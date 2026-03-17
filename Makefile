@@ -10,6 +10,7 @@ build:             ## Build all components
 	$(MAKE) -C agent build
 	$(MAKE) -C gateway build
 	$(MAKE) -C workers build
+	$(MAKE) -C dashboard build
 
 test:              ## Run all tests
 	$(MAKE) -C agent test
@@ -20,6 +21,7 @@ lint:              ## Lint all components
 	$(MAKE) -C agent lint
 	$(MAKE) -C gateway lint
 	$(MAKE) -C workers lint
+	$(MAKE) -C dashboard lint
 
 dev:               ## Start full local dev environment
 	$(MAKE) -C docker dev
@@ -37,10 +39,5 @@ clean:             ## Clean all build artifacts
 	$(MAKE) -C agent clean
 	$(MAKE) -C gateway clean
 	$(MAKE) -C workers clean
+	$(MAKE) -C dashboard clean
 	$(MAKE) -C proto clean
-
-# Phase 3+ targets (dashboard not yet created):
-# dashboard-build: ## Build dashboard
-#	$(MAKE) -C dashboard build
-# dashboard-lint:  ## Lint dashboard
-#	$(MAKE) -C dashboard lint

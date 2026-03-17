@@ -1,0 +1,23 @@
+# Rust build artifacts
+target/
+
+# Node modules (rebuilt inside containers)
+dashboard/node_modules/
+dashboard/dist/
+
+# Git
+.git/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test/CI artifacts
+.pytest_cache/
+__pycache__/
+*.pyc

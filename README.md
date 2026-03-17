@@ -374,19 +374,19 @@ make lint       # lint all components
 
 ### Running integration tests
 
-Integration tests verify the full pipeline against the Docker Compose stack:
+Integration tests verify the full pipeline end-to-end: agent binary, gateway,
+RabbitMQ, Go workers, ClickHouse, and Postgres. One command does everything —
+builds the agent, starts the Docker Compose stack, waits for health checks,
+and runs all tests including real agent capture tests with sudo:
 
 ```bash
-# Unit tests (no dependencies needed)
-make test
+make test-integration
+```
 
-# Integration tests (requires make dev to be running)
-make dev
-pip install -r tests/integration/requirements.txt
-pytest tests/integration/ -v
+On Windows, run the PowerShell script as Administrator:
 
-# Real agent tests (requires root)
-sudo pytest tests/integration/test_ingest_real_agent.py -v
+```powershell
+tests\integration\scripts\run-windows.ps1
 ```
 
 See `tests/README.md` for details on the test layers and how to add new tests.

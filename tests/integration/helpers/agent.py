@@ -7,7 +7,10 @@ import signal
 
 
 def is_root() -> bool:
-    """Return True if running as root (required for raw socket capture)."""
+    """Return True if running with elevated privileges (root on Unix, Administrator on Windows)."""
+    if os.name == "nt":
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
     return os.getuid() == 0
 
 

@@ -4,13 +4,10 @@ Flow: verify Bearer token -> deserialize protobuf -> publish to RabbitMQ -> 200.
 No processing logic, no database writes, no business logic.
 """
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, Request, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from constants import ROUTE_INGEST
-from dependencies import get_db, verify_bearer_token
+from dependencies import verify_bearer_token
 from models.agent import Agent
 from proto_utils import deserialize_event_batch
 from rabbitmq import publish_event_batch
@@ -33,7 +30,6 @@ router = APIRouter()
 async def ingest(
     request: Request,
     agent: Agent = Depends(verify_bearer_token),
-    db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Accept a protobuf EventBatch, validate, enqueue to RabbitMQ."""
     body = await request.body()
@@ -43,10 +39,5 @@ async def ingest(
 
     # Publish raw bytes to RabbitMQ. Workers handle deserialization and storage.
     publish_event_batch(body)
-
-    # Update agent last_seen_at.
-    agent.last_seen_at = datetime.now(timezone.utc)
-    db.add(agent)
-    await db.commit()
 
     return Response(status_code=status.HTTP_200_OK)

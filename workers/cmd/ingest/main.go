@@ -34,7 +34,8 @@ func main() {
 	}
 	log.Println("[ingest] Connected to ClickHouse")
 
-	w := writer.New(ch, pg)
+	chWriter := writer.NewClickHouseWriter(ch)
+	pgWriter := writer.NewPostgresWriter(pg)
 
 	// Graceful shutdown.
 	sigs := make(chan os.Signal, 1)
@@ -45,7 +46,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	if err := consumer.Start(cfg.RabbitMQURL, w); err != nil {
+	if err := consumer.Start(cfg.RabbitMQURL, chWriter, pgWriter); err != nil {
 		log.Fatalf("[ingest] Consumer error: %v", err)
 	}
 }

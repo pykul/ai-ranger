@@ -244,6 +244,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -251,46 +255,47 @@ jobs:
       - name: Install protoc
         run: sudo apt-get install -y protobuf-compiler
 
-      - name: Create .env from example
-        run: cp .env.example .env
-
-      - name: Start Docker Compose stack
-        run: |
-          cd docker
-          docker compose --env-file ../.env up -d --build
-
-      - name: Wait for services to be healthy
-        run: |
-          for i in $(seq 1 45); do
-            GW=$(curl -sf http://localhost:8080/health 2>/dev/null || true)
-            API=$(curl -sf http://localhost:8081/health 2>/dev/null || true)
-            if echo "$GW" | grep -q '"ok"' && echo "$API" | grep -q '"ok"'; then
-              echo "All services healthy after ${i}s"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Services failed to become healthy"
-          docker compose --env-file .env -f docker/docker-compose.yml ps
-          docker compose --env-file .env -f docker/docker-compose.yml logs
-          exit 1
-
-      - name: Build agent binary
-        run: cargo build --release --manifest-path agent/Cargo.toml
-
-      - name: Install test dependencies
-        run: pip install -r tests/integration/requirements.txt
-
       - name: Run integration tests
-        run: /usr/bin/sudo -E $(which pytest) tests/integration/ -v --tb=short -m "not network"
-        env:
-          AGENT_BINARY: target/release/ai-ranger
+        run: make test-integration
 
       - name: Cleanup
         if: always()
-        run: |
-          cd docker
-          docker compose --env-file ../.env down -v
+        run: docker compose --env-file .env -f docker/docker-compose.yml down -v
+
+  # ── Integration tests (Windows) ──────────────────────────────────────────
+  # Runs only the real agent tests on a Windows runner to validate the
+  # Windows detection path (SIO_RCVALL + ETW DNS) against the full backend.
+  # Synthetic protobuf tests don't need Windows and run in integration-tests.
+  integration-tests-windows:
+    name: Integration Tests (Windows)
+    needs: [gateway, workers, agent]
+    runs-on: windows-latest
+    continue-on-error: true   # Remove once proven stable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install protoc
+        shell: pwsh
+        run: choco install protoc -y
+
+      - name: Run real agent integration tests
+        shell: pwsh
+        run: tests\integration\scripts\run-windows.ps1
+
+      - name: Cleanup
+        if: always()
+        shell: pwsh
+        run: docker compose --env-file .env -f docker/docker-compose.yml down -v
 
   # ── Dashboard (React/TypeScript) ─────────────────────────────────────────
   # Uncomment when dashboard/ is created (Phase 3)

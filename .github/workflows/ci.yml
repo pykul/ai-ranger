@@ -259,12 +259,13 @@ jobs:
         run: docker compose --env-file .env -f docker/docker-compose.yml down -v
 
   # ── Integration tests (Windows) ──────────────────────────────────────────
-  # Runs only the real agent tests on a Windows runner to validate the
-  # Windows detection path (SIO_RCVALL + ETW DNS) against the full backend.
-  # Synthetic protobuf tests don't need Windows and run in integration-tests.
+  # Runs standalone agent tests on a Windows runner to validate the Windows
+  # detection path (SIO_RCVALL + ETW DNS). No Docker Compose — GitHub Actions
+  # Windows runners cannot run Linux containers. Backend-dependent tests
+  # (enrollment, pipeline) run on the Linux integration-tests job.
   integration-tests-windows:
     name: Integration Tests (Windows)
-    needs: [gateway, workers, agent]
+    needs: [agent]
     runs-on: windows-latest
     continue-on-error: true   # Remove once proven stable
     steps:
@@ -284,14 +285,9 @@ jobs:
         shell: pwsh
         run: choco install protoc -y
 
-      - name: Run real agent integration tests
+      - name: Run standalone agent tests
         shell: pwsh
         run: tests\integration\scripts\run-windows.ps1
-
-      - name: Cleanup
-        if: always()
-        shell: pwsh
-        run: docker compose --env-file .env -f docker/docker-compose.yml down -v
 
   # ── Dashboard (React/TypeScript) ─────────────────────────────────────────
   # Uncomment when dashboard/ is created (Phase 3)

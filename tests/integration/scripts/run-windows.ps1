@@ -1,43 +1,23 @@
-# run-windows.ps1 - Run real agent integration tests on Windows.
-# Requires: cargo, docker compose (Docker Desktop), python3, Administrator.
+# run-windows.ps1 - Run standalone agent tests on Windows.
+# Requires: cargo, python3, Administrator.
 #
-# This script builds the Windows agent, starts the backend via Docker Compose,
-# and runs only the real agent tests (test_ingest_real_agent.py).
-# Synthetic/backend tests run on Linux CI and don't need a Windows runner.
+# GitHub Actions Windows runners cannot run Linux containers, so Docker Compose
+# is not available. This script runs only the standalone agent tests that do not
+# require a backend (captures_sni and stdout_mode). The enrollment test and all
+# backend pipeline tests run on the Linux CI runner.
 
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = (Resolve-Path "$ScriptDir\..\..\..").Path
 
-# -- Config -------------------------------------------------------------------
-$GatewayUrl = if ($env:GATEWAY_URL) { $env:GATEWAY_URL } else { "http://localhost:8080" }
-$ApiUrl     = if ($env:API_URL)     { $env:API_URL }     else { "http://localhost:8081" }
-$SeedToken  = if ($env:SEED_TOKEN)  { $env:SEED_TOKEN }  else { "tok_test_dev" }
-
 # -- Helpers ------------------------------------------------------------------
 function Step($msg) { Write-Host "==> $msg" }
-
-function Ensure-EnvFile {
-    $envFile = Join-Path $RepoRoot ".env"
-    if (-not (Test-Path $envFile)) {
-        Copy-Item (Join-Path $RepoRoot ".env.example") $envFile
-        Write-Host "    Created .env from .env.example"
-    }
-}
 
 function Build-Agent {
     Step "Building agent (release)..."
     cargo build --release --manifest-path (Join-Path $RepoRoot "agent\Cargo.toml")
     if ($LASTEXITCODE -ne 0) { throw "Agent build failed" }
-}
-
-function Start-Stack {
-    Step "Building and starting Docker Compose stack (waiting for healthy)..."
-    $envFile = Join-Path $RepoRoot ".env"
-    $composeFile = Join-Path $RepoRoot "docker\docker-compose.yml"
-    docker compose --env-file $envFile -f $composeFile up -d --build --wait
-    if ($LASTEXITCODE -ne 0) { throw "Docker Compose up failed" }
 }
 
 function Install-TestDeps {
@@ -49,17 +29,17 @@ function Install-TestDeps {
 function Run-Tests {
     param([string]$AgentBinary)
 
-    Step "Running real agent integration tests..."
+    Step "Running standalone agent tests (no backend required)..."
     $env:AGENT_BINARY = $AgentBinary
-    $env:GATEWAY_URL  = $GatewayUrl
-    $env:API_URL      = $ApiUrl
-    $env:SEED_TOKEN   = $SeedToken
 
-    python -m pytest (Join-Path $RepoRoot "tests\integration\test_ingest_real_agent.py") -v
-    if ($LASTEXITCODE -ne 0) { throw "Integration tests failed" }
+    # Run only standalone tests that do not need Docker Compose.
+    # test_real_agent_enrollment requires the gateway and is excluded.
+    python -m pytest (Join-Path $RepoRoot "tests\integration\test_ingest_real_agent.py") `
+        -v -k "captures_sni or stdout_mode"
+    if ($LASTEXITCODE -ne 0) { throw "Agent tests failed" }
 
     Write-Host ""
-    Step "All integration tests passed."
+    Step "All Windows agent tests passed."
 }
 
 # -- Main ---------------------------------------------------------------------
@@ -69,9 +49,7 @@ if (-not $isAdmin) {
     throw "This script must be run as Administrator (SIO_RCVALL requires elevated privileges)"
 }
 
-Ensure-EnvFile
 Build-Agent
-Start-Stack
 Install-TestDeps
 
 $agentBinary = Join-Path $RepoRoot "target\release\ai-ranger.exe"

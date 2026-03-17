@@ -733,14 +733,19 @@ ClickHouse without requiring a real agent, root access, or network traffic. Thes
 run on all environments and provide coverage when real agent tests cannot run.
 
 **Windows integration tests** were initially deferred but later implemented. The
-Windows CI job (`integration-tests-windows`) runs `tests/integration/test_ingest_real_agent.py`
-against a live Docker Compose stack on a `windows-latest` GitHub Actions runner with
-Administrator privileges. This validates the full Windows detection path (SIO_RCVALL +
-ETW DNS) against the real backend pipeline, not just the standalone smoke test. The
-test file was made cross-platform: `is_root()` uses `ctypes.windll.shell32.IsUserAnAdmin()`
-on Windows, process termination uses `proc.terminate()` instead of SIGTERM, and AI
-provider traffic is triggered via `urllib` instead of shelling out to `curl`. The job
-is marked `continue-on-error: true` until proven stable on Windows runners.
+Windows CI job (`integration-tests-windows`) runs the standalone agent tests
+(`captures_sni` and `stdout_mode`) on a `windows-latest` GitHub Actions runner
+with Administrator privileges. These tests validate the Windows detection path
+(SIO_RCVALL + ETW DNS) by starting the agent, triggering real AI provider traffic,
+and verifying JSON events are captured. The enrollment test is excluded because
+GitHub Actions Windows runners cannot run Linux containers (no Docker Compose
+for the backend stack). Backend-dependent tests run on the Linux CI runner.
+
+The test file was made cross-platform: `is_root()` uses
+`ctypes.windll.shell32.IsUserAnAdmin()` on Windows, process termination uses
+`proc.terminate()` instead of SIGTERM, and AI provider traffic is triggered via
+`urllib` instead of shelling out to `curl`. The job is marked
+`continue-on-error: true` until proven stable on Windows runners.
 
 ---
 
@@ -775,3 +780,53 @@ logs an error but does not affect event processing or message acknowledgment.
 `workers/internal/writer/postgres.go` was promoted from a placeholder stub to a
 full implementation with its own struct, constructor, and `UpdateAgentLastSeen`
 method.
+
+---
+
+## Phase 3 Dashboard Decisions
+
+### Environment-aware authentication: JWT with dev bypass
+
+JWT was chosen over OAuth/OIDC and session cookies for dashboard authentication.
+The reasoning:
+
+- **No external dependency.** OAuth/OIDC requires an identity provider (Auth0,
+  Keycloak, Okta). For a self-hosted internal ops tool, adding an IdP dependency
+  defeats the simplicity of `docker compose up`. JWT is self-contained: the Go
+  API server signs and validates tokens using a secret from an environment variable.
+- **Self-hosted organizations control their own credentials.** There is no SaaS
+  account, no third-party token exchange, and no network call during authentication.
+- **Stateless API.** JWT tokens are validated without a database lookup on every
+  request. The Go middleware decodes the token, checks the signature and expiry,
+  and passes through. No session table needed.
+
+Auth is **bypassed entirely in development** (`ENVIRONMENT=development`). The Go
+auth middleware is a no-op that passes all requests through. The dashboard renders
+without a login screen. This preserves the local developer experience unchanged:
+`make dev` starts the full stack with no credentials, no login page, and no tokens
+to manage. The dev environment must remain zero-friction.
+
+In production (`ENVIRONMENT=production`), every Go Query API request except
+`/health` and `/v1/auth/*` requires a valid `Authorization: Bearer <jwt>` header.
+The dashboard shows a login page and stores the JWT in memory (not localStorage)
+with a refresh token flow.
+
+### Single admin user instead of user management
+
+A full user management system with multiple accounts, invite flows, RBAC, and
+password resets is out of scope for Phase 3. The reasoning:
+
+- **AI Ranger is an internal ops tool.** The dashboard is used by a small number
+  of admins who manage agent enrollment and review AI usage data. It is not a
+  multi-tenant SaaS product with per-user access control.
+- **Premature complexity.** Building a users table, Alembic migration, invite
+  emails, password reset flow, and role system for a tool that currently has one
+  class of user (admin) is over-engineering.
+- **Environment variables are the right primitive.** `ADMIN_EMAIL` and
+  `ADMIN_PASSWORD` (bcrypt hash) are set once during deployment. The login
+  endpoint checks them directly. No database query, no user table, no migration.
+- **Reversible.** If real demand emerges for multi-user access (e.g. read-only
+  viewers, per-team scoping), a users table can be added in a future phase. The
+  JWT infrastructure built now carries forward unchanged: the only change is
+  where the credential check happens (database lookup instead of env var
+  comparison).

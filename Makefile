@@ -31,7 +31,7 @@ logs:              ## Tail logs from all services
 	$(MAKE) -C docker logs
 
 test-integration:  ## Build agent, start backend, run all integration tests (requires sudo)
-	@tests/run-integration.sh
+	@bash tests/run-integration.sh
 
 clean:             ## Clean all build artifacts
 	$(MAKE) -C agent clean

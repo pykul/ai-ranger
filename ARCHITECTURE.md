@@ -1616,6 +1616,10 @@ via `env_file` and `${VAR}` interpolation. No credentials are hardcoded in the c
 | `POSTGRES_USER` | Postgres superuser name |
 | `POSTGRES_PASSWORD` | Postgres superuser password |
 | `POSTGRES_DB` | Postgres database name |
+| `POSTGRES_HOST` | Postgres hostname (used in docker-compose.yml to construct connection URLs) |
+| `POSTGRES_PORT` | Postgres port (used in docker-compose.yml to construct connection URLs) |
+| `CLICKHOUSE_HOST` | ClickHouse hostname (used in docker-compose.yml to construct CLICKHOUSE_ADDR) |
+| `CLICKHOUSE_PORT` | ClickHouse native protocol port (used in docker-compose.yml to construct CLICKHOUSE_ADDR) |
 | `RABBITMQ_DEFAULT_USER` | RabbitMQ default user (read natively by the image) |
 | `RABBITMQ_DEFAULT_PASS` | RabbitMQ default password |
 

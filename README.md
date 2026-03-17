@@ -44,8 +44,8 @@ auditable. That is not a marketing claim, it is the architecture. If you are not
 sure what the agent does, you can read it.
 
 **A note on root access.** Capturing raw network packets requires elevated privileges
-on all major operating systems. The agent runs as root on Linux and macOS, or as a
-Windows Service with the necessary capabilities on Windows. This is standard for any
+on all major operating systems. The agent runs as root on Linux and macOS, or as
+Administrator on Windows. This is standard for any
 tool that observes network-layer metadata. The same requirement applies to Wireshark,
 tcpdump, and endpoint security agents. What root access gives the agent is the ability
 to see packet headers. It does not change what the agent reads from those packets, which
@@ -140,18 +140,26 @@ Wait for all services to start. You should see health checks passing for all con
 ### 2. Build, enroll, and run the agent
 
 The dev environment seeds a test enrollment token (`tok_test_dev`) automatically.
-Build the agent and start it with `--token` and `--backend` — it enrolls and starts
+Build the agent and start it with `--token` and `--backend`. It enrolls and starts
 capturing in one step:
 
 ```bash
 cargo build --manifest-path agent/Cargo.toml
 
+# Linux / macOS
 sudo ./target/debug/ai-ranger --token=tok_test_dev --backend=http://localhost:8080
+
+# Windows (run as Administrator)
+.\target\debug\ai-ranger.exe --token=tok_test_dev --backend=http://localhost:8080
 ```
 
 On first run, the agent enrolls with the backend and begins capturing immediately.
-On subsequent runs, just `sudo ./target/debug/ai-ranger` — the enrollment is saved
-to `~/.config/ai-ranger/config.json` and reused automatically.
+On subsequent runs, just run the binary with no flags. The enrollment is saved
+to a platform-specific config directory and reused automatically:
+
+- Linux: `~/.config/ai-ranger/config.json`
+- macOS: `~/Library/Application Support/ai-ranger/config.json`
+- Windows: `%APPDATA%\ai-ranger\config.json`
 
 ### 3. Verify end-to-end
 
@@ -177,17 +185,21 @@ curl -s http://localhost:8081/v1/dashboard/overview | python3 -m json.tool
 ## Running standalone (no backend)
 
 The agent works completely independently. With no enrollment it prints events to
-stdout — useful for testing, scripting, or piping into your own tooling:
+stdout, which is useful for testing, scripting, or piping into your own tooling:
 
 ```bash
+# Linux / macOS
 sudo ai-ranger
+
+# Windows (run as Administrator)
+ai-ranger.exe
 ```
 
 ```json
 {"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","os_type":"windows","timestamp_ms":1773564763684,"provider":"openai","provider_host":"api.openai.com","process_name":"curl.exe","process_pid":22276,"src_ip":"192.168.1.232","detection_method":"SNI","capture_mode":"DNS_SNI"}
 ```
 
-Fields like `agent_id` are populated after enrollment — in standalone mode they are empty.
+Fields like `agent_id` are populated after enrollment. In standalone mode they are empty.
 No account. No config. No data sent anywhere.
 
 A default `config.toml` with all available options documented ships at `agent/config.toml`.
@@ -227,11 +239,16 @@ sha256sum -c checksums.txt --ignore-missing
 Generate an enrollment token from the admin API, then start the agent:
 
 ```bash
+# Linux / macOS
 ai-ranger --token=tok_your_token --backend=https://your-instance.com
+
+# Windows (run as Administrator)
+ai-ranger.exe --token=tok_your_token --backend=https://your-instance.com
 ```
 
 The agent enrolls with the backend on first run and starts capturing immediately.
-On subsequent runs, just `ai-ranger` — the enrollment is remembered.
+On subsequent runs, just `ai-ranger` (or `ai-ranger.exe` on Windows). The
+enrollment is remembered.
 
 For scripted deployments where enrollment and daemon start are separate steps
 (e.g. installer scripts), use `--enroll` to enroll and exit without capturing:
@@ -375,7 +392,7 @@ make lint       # lint all components
 ### Running integration tests
 
 Integration tests verify the full pipeline end-to-end: agent binary, gateway,
-RabbitMQ, Go workers, ClickHouse, and Postgres. One command does everything —
+RabbitMQ, Go workers, ClickHouse, and Postgres. One command does everything:
 builds the agent, starts the Docker Compose stack, waits for health checks,
 and runs all tests including real agent capture tests with sudo:
 

@@ -732,7 +732,46 @@ HTTP endpoint. They test the full pipeline from HTTP ingest through RabbitMQ to
 ClickHouse without requiring a real agent, root access, or network traffic. These
 run on all environments and provide coverage when real agent tests cannot run.
 
-Windows integration tests were considered and deferred. Running Linux Docker containers
-alongside a Windows agent binary in the same CI job adds complexity without proportional
-benefit — the agent's Windows-specific capture code (SIO_RCVALL + ETW) is tested by
-the existing agent CI matrix on windows-latest.
+**Windows integration tests** were initially deferred but later implemented. The
+Windows CI job (`integration-tests-windows`) runs `tests/integration/test_ingest_real_agent.py`
+against a live Docker Compose stack on a `windows-latest` GitHub Actions runner with
+Administrator privileges. This validates the full Windows detection path (SIO_RCVALL +
+ETW DNS) against the real backend pipeline, not just the standalone smoke test. The
+test file was made cross-platform: `is_root()` uses `ctypes.windll.shell32.IsUserAnAdmin()`
+on Windows, process termination uses `proc.terminate()` instead of SIGTERM, and AI
+provider traffic is triggered via `urllib` instead of shelling out to `curl`. The job
+is marked `continue-on-error: true` until proven stable on Windows runners.
+
+---
+
+## Phase 2 Architecture Fixes
+
+### Gateway ingest route: last_seen_at write removed
+
+An architecture audit found that `gateway/routers/ingest.py` was updating
+`agent.last_seen_at` in Postgres before returning 200. This violated the core
+architecture rule: the gateway does no database writes on ingest. Its only
+responsibilities are token verification, protobuf deserialization, RabbitMQ
+publishing, and returning 200.
+
+The `last_seen_at` update was moved exclusively to the Go ingest worker, which
+already owns all post-queue processing. The gateway ingest route now has zero
+database imports and zero database writes. The `datetime`, `AsyncSession`, and
+`get_db` imports were removed entirely.
+
+### Decoupling ClickHouse and Postgres writes in the ingest worker
+
+The original Go ingest worker ran the Postgres `last_seen_at` update inside
+`clickhouse.go` after `insertClickHouseEvents()` succeeded. If the ClickHouse
+write failed, the function returned early and the Postgres update never executed.
+This meant a ClickHouse outage would silently prevent agent activity tracking
+even though the agent was clearly sending data.
+
+The fix separated the two concerns into independent writer structs:
+`ClickHouseWriter` (events) and `PostgresWriter` (agent metadata). The consumer
+in `rabbitmq.go` calls both independently. A ClickHouse failure logs an error and
+nacks the message but does not prevent the Postgres update. A Postgres failure
+logs an error but does not affect event processing or message acknowledgment.
+`workers/internal/writer/postgres.go` was promoted from a placeholder stub to a
+full implementation with its own struct, constructor, and `UpdateAgentLastSeen`
+method.

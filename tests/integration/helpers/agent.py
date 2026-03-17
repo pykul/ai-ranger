@@ -97,4 +97,4 @@ class AgentProcess:
 
     def get_stderr_lines(self) -> list[str]:
         """Return stderr lines (log messages)."""
-        return [l for l in self._stdout_lines if not l.startswith("{")]
+        return [line for line in self._stdout_lines if not line.startswith("{")]

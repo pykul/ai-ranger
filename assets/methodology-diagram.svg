@@ -1,0 +1,146 @@
+<svg viewBox="0 0 1000 640" xmlns="http://www.w3.org/2000/svg" font-family="'Helvetica Neue', Arial, sans-serif">
+
+  <rect width="1000" height="640" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="500" y="40" text-anchor="middle" fill="#111111" font-size="19" font-weight="700">The AI-Assisted Development Loop</text>
+  <text x="500" y="62" text-anchor="middle" fill="#999999" font-size="12">Three roles. One repeating cycle. Plans always come before code.</text>
+
+  <!-- ── PHASE 0: INITIAL SETUP (top strip) ── -->
+  <rect x="30" y="82" width="940" height="104" rx="10" fill="#f5f5f5" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="54" y="102" fill="#aaaaaa" font-size="10" font-weight="700" letter-spacing="1">ONCE AT PROJECT START</text>
+
+  <!-- P0 Box 1: Project Owner -->
+  <rect x="50" y="110" width="200" height="64" rx="7" fill="#111111"/>
+  <text x="150" y="132" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">PROJECT OWNER</text>
+  <text x="150" y="148" text-anchor="middle" fill="#999999" font-size="9">(human)</text>
+  <text x="150" y="163" text-anchor="middle" fill="#bbbbbb" font-size="9">Shares vision &amp; goals</text>
+
+  <!-- arrow -->
+  <line x1="252" y1="142" x2="294" y2="142" stroke="#888888" stroke-width="1.5" marker-end="url(#arr-mid)"/>
+  <text x="273" y="136" text-anchor="middle" fill="#aaaaaa" font-size="8">vision</text>
+
+  <!-- P0 Box 2: Supervisor -->
+  <rect x="296" y="110" width="200" height="64" rx="7" fill="#333333"/>
+  <text x="396" y="132" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">SUPERVISOR</text>
+  <text x="396" y="148" text-anchor="middle" fill="#999999" font-size="9">(Claude)</text>
+  <text x="396" y="163" text-anchor="middle" fill="#bbbbbb" font-size="9">Writes ARCHITECTURE.md, phases, docs</text>
+
+  <!-- arrow -->
+  <line x1="498" y1="142" x2="540" y2="142" stroke="#888888" stroke-width="1.5" marker-end="url(#arr-mid)"/>
+  <text x="519" y="136" text-anchor="middle" fill="#aaaaaa" font-size="8">docs + plan</text>
+
+  <!-- P0 Box 3: Executor -->
+  <rect x="542" y="110" width="200" height="64" rx="7" fill="#555555"/>
+  <text x="642" y="132" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">EXECUTOR</text>
+  <text x="642" y="148" text-anchor="middle" fill="#999999" font-size="9">(Claude Code)</text>
+  <text x="642" y="163" text-anchor="middle" fill="#cccccc" font-size="9">Reads docs, asks questions, begins</text>
+
+  <!-- P0 note: flexibility -->
+  <rect x="762" y="110" width="196" height="64" rx="7" fill="#ffffff" stroke="#dddddd" stroke-width="1"/>
+  <text x="860" y="130" text-anchor="middle" fill="#888888" font-size="9" font-weight="700">FLEXIBLE BY DESIGN</text>
+  <text x="860" y="146" text-anchor="middle" fill="#aaaaaa" font-size="9">Phases can change. Decisions</text>
+  <text x="860" y="160" text-anchor="middle" fill="#aaaaaa" font-size="9">updated. Always via Supervisor.</text>
+
+  <!-- ── TASK LOOP (middle) ── -->
+  <rect x="30" y="202" width="940" height="268" rx="10" fill="#fafafa" stroke="#e8e8e8" stroke-width="1"/>
+  <text x="54" y="222" fill="#aaaaaa" font-size="10" font-weight="700" letter-spacing="1">REPEATS FOR EVERY TASK  ↺</text>
+
+  <!-- Step 1 -->
+  <rect x="50" y="232" width="196" height="110" rx="7" fill="#ffffff" stroke="#cccccc" stroke-width="1.5"/>
+  <circle cx="74" cy="252" r="12" fill="#111111"/>
+  <text x="74" y="257" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">1</text>
+  <text x="148" y="257" text-anchor="middle" fill="#222222" font-size="10" font-weight="700">Supervisor</text>
+  <text x="148" y="273" text-anchor="middle" fill="#666666" font-size="9">Consults with owner.</text>
+  <text x="148" y="287" text-anchor="middle" fill="#666666" font-size="9">Writes scoped prompt.</text>
+  <text x="148" y="301" text-anchor="middle" fill="#666666" font-size="9">Sets constraints.</text>
+  <text x="148" y="320" text-anchor="middle" fill="#999999" font-size="8" font-style="italic">"plan only, wait for approval"</text>
+
+  <!-- arrow 1→2 -->
+  <line x1="248" y1="287" x2="286" y2="287" stroke="#555555" stroke-width="1.5" marker-end="url(#arr-dark)"/>
+
+  <!-- Step 2 -->
+  <rect x="288" y="232" width="196" height="110" rx="7" fill="#ffffff" stroke="#cccccc" stroke-width="1.5"/>
+  <circle cx="312" cy="252" r="12" fill="#333333"/>
+  <text x="312" y="257" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">2</text>
+  <text x="386" y="257" text-anchor="middle" fill="#222222" font-size="10" font-weight="700">Executor</text>
+  <text x="386" y="273" text-anchor="middle" fill="#666666" font-size="9">Reads all docs.</text>
+  <text x="386" y="287" text-anchor="middle" fill="#666666" font-size="9">Proposes full plan.</text>
+  <text x="386" y="301" text-anchor="middle" fill="#666666" font-size="9">No code yet.</text>
+  <text x="386" y="320" text-anchor="middle" fill="#999999" font-size="8" font-style="italic">supervisor reviews + approves</text>
+
+  <!-- arrow 2→3 -->
+  <line x1="486" y1="287" x2="524" y2="287" stroke="#555555" stroke-width="1.5" marker-end="url(#arr-dark)"/>
+
+  <!-- Step 3 -->
+  <rect x="526" y="232" width="196" height="110" rx="7" fill="#ffffff" stroke="#cccccc" stroke-width="1.5"/>
+  <circle cx="550" cy="252" r="12" fill="#333333"/>
+  <text x="550" y="257" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">3</text>
+  <text x="624" y="257" text-anchor="middle" fill="#222222" font-size="10" font-weight="700">Executor</text>
+  <text x="624" y="273" text-anchor="middle" fill="#666666" font-size="9">Implements.</text>
+  <text x="624" y="287" text-anchor="middle" fill="#666666" font-size="9">Updates docs.</text>
+  <text x="624" y="301" text-anchor="middle" fill="#666666" font-size="9">Reports full summary.</text>
+  <text x="624" y="320" text-anchor="middle" fill="#999999" font-size="8" font-style="italic">supervisor reviews output</text>
+
+  <!-- arrow 3→4 -->
+  <line x1="724" y1="287" x2="762" y2="287" stroke="#555555" stroke-width="1.5" marker-end="url(#arr-dark)"/>
+
+  <!-- Step 4 -->
+  <rect x="764" y="232" width="196" height="110" rx="7" fill="#ffffff" stroke="#cccccc" stroke-width="1.5"/>
+  <circle cx="788" cy="252" r="12" fill="#111111"/>
+  <text x="788" y="257" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">4</text>
+  <text x="862" y="257" text-anchor="middle" fill="#222222" font-size="10" font-weight="700">Supervisor</text>
+  <text x="862" y="273" text-anchor="middle" fill="#666666" font-size="9">Reviews output.</text>
+  <text x="862" y="287" text-anchor="middle" fill="#666666" font-size="9">Catches drift.</text>
+  <text x="862" y="301" text-anchor="middle" fill="#666666" font-size="9">Phases next task.</text>
+  <text x="862" y="320" text-anchor="middle" fill="#999999" font-size="8" font-style="italic">repeat or move to audit</text>
+
+  <!-- shortcut note -->
+  <rect x="50" y="356" width="900" height="36" rx="6" fill="#f0f0f0" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="500" y="370" text-anchor="middle" fill="#888888" font-size="9" font-weight="700">SHORTCUT FOR SMALL TASKS: </text>
+  <text x="500" y="383" text-anchor="middle" fill="#aaaaaa" font-size="9">Minor fixes and isolated changes can go directly to the Executor — skip steps 1 and 2. Use judgment.</text>
+
+  <!-- repeat arrow -->
+  <path d="M 960 287 Q 980 287 980 430 Q 980 460 500 460 Q 20 460 20 430 Q 20 287 48 287" stroke="#cccccc" stroke-width="1.5" fill="none" stroke-dasharray="5,3" marker-end="url(#arr-light)"/>
+  <text x="500" y="478" text-anchor="middle" fill="#bbbbbb" font-size="10" font-weight="600">↺  repeat for each task within the phase</text>
+
+  <!-- ── PHASE AUDIT ── -->
+  <rect x="300" y="494" width="400" height="62" rx="8" fill="#111111"/>
+  <text x="500" y="516" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">PHASE AUDIT</text>
+  <text x="500" y="533" text-anchor="middle" fill="#888888" font-size="9">Supervisor writes audit prompt · Executor checks code vs docs</text>
+  <text x="500" y="548" text-anchor="middle" fill="#666666" font-size="9">Executor fixes · phase closes · next phase begins</text>
+
+  <!-- arrow from loop to audit -->
+  <line x1="500" y1="480" x2="500" y2="492" stroke="#bbbbbb" stroke-width="1.5" marker-end="url(#arr-light)"/>
+
+  <!-- ── EXTERNAL MEMORY ── -->
+  <rect x="30" y="574" width="940" height="52" rx="8" fill="#f5f5f5" stroke="#e8e8e8" stroke-width="1"/>
+  <text x="500" y="592" text-anchor="middle" fill="#aaaaaa" font-size="9" letter-spacing="1.2" font-weight="700">EXTERNAL MEMORY — PERSISTS ACROSS ALL SESSIONS</text>
+
+  <text x="185" y="610" text-anchor="middle" fill="#555555" font-size="10" font-weight="600">ARCHITECTURE.md</text>
+  <text x="185" y="622" text-anchor="middle" fill="#aaaaaa" font-size="8">What the system is</text>
+
+  <text x="500" y="610" text-anchor="middle" fill="#555555" font-size="10" font-weight="600">DECISIONS.md</text>
+  <text x="500" y="622" text-anchor="middle" fill="#aaaaaa" font-size="8">Why it is that way</text>
+
+  <text x="815" y="610" text-anchor="middle" fill="#555555" font-size="10" font-weight="600">CLAUDE.md</text>
+  <text x="815" y="622" text-anchor="middle" fill="#aaaaaa" font-size="8">Standing rules</text>
+
+  <!-- memory dotted connectors -->
+  <line x1="148" y1="400" x2="148" y2="572" stroke="#dddddd" stroke-width="1" stroke-dasharray="3,3"/>
+  <line x1="500" y1="400" x2="500" y2="492" stroke="#dddddd" stroke-width="1" stroke-dasharray="3,3"/>
+  <line x1="862" y1="400" x2="862" y2="572" stroke="#dddddd" stroke-width="1" stroke-dasharray="3,3"/>
+
+  <defs>
+    <marker id="arr-dark" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
+      <path d="M0,0 L0,5 L7,2.5 z" fill="#444444"/>
+    </marker>
+    <marker id="arr-mid" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
+      <path d="M0,0 L0,5 L7,2.5 z" fill="#888888"/>
+    </marker>
+    <marker id="arr-light" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
+      <path d="M0,0 L0,5 L7,2.5 z" fill="#bbbbbb"/>
+    </marker>
+  </defs>
+
+</svg>

@@ -258,36 +258,11 @@ jobs:
         if: always()
         run: docker compose --env-file .env -f docker/docker-compose.yml down -v
 
-  # ── Integration tests (Windows) ──────────────────────────────────────────
-  # Runs standalone agent tests on a Windows runner to validate the Windows
-  # detection path (SIO_RCVALL + ETW DNS). No Docker Compose — GitHub Actions
-  # Windows runners cannot run Linux containers. Backend-dependent tests
-  # (enrollment, pipeline) run on the Linux integration-tests job.
-  integration-tests-windows:
-    name: Integration Tests (Windows)
-    needs: [agent]
-    runs-on: windows-latest
-    continue-on-error: true   # Remove once proven stable
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: agent
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install protoc
-        shell: pwsh
-        run: choco install protoc -y
-
-      - name: Run standalone agent tests
-        shell: pwsh
-        run: tests\integration\scripts\run-windows.ps1
+  # Windows agent detection (SIO_RCVALL + ETW DNS) is validated by the
+  # agent job's smoke test on windows-latest. A separate Windows integration
+  # test job was removed because GitHub Actions Windows runners cannot run
+  # Linux containers (no Docker Compose for the backend stack), making it
+  # a duplicate of the existing smoke test.
 
   # ── Dashboard (React/TypeScript) ─────────────────────────────────────────
   # Uncomment when dashboard/ is created (Phase 3)

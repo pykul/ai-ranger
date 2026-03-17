@@ -46,17 +46,14 @@ jobs:
         shell: pwsh
         run: choco install protoc -y
 
-      - name: Build
-        run: cargo build
-
-      - name: Build release (for smoke test)
-        run: cargo build --release
+      - name: Clippy
+        run: cargo clippy -- -D warnings
 
       - name: Test
         run: cargo test
 
-      - name: Clippy
-        run: cargo clippy -- -D warnings
+      - name: Build release (for smoke test)
+        run: cargo build --release
 
       - name: Format check
         if: runner.os == 'Linux'

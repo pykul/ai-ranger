@@ -260,9 +260,11 @@ jobs:
 
   # Windows agent detection (SIO_RCVALL + ETW DNS) is validated by the
   # agent job's smoke test on windows-latest. A separate Windows integration
-  # test job was removed because GitHub Actions Windows runners cannot run
-  # Linux containers (no Docker Compose for the backend stack), making it
-  # a duplicate of the existing smoke test.
+  # test job was removed because the backend pipeline tests (Docker Compose
+  # with Postgres, ClickHouse, RabbitMQ) do not test anything Windows-specific.
+  # Those Linux containers run identically regardless of the host OS. The only
+  # Windows-specific code is the agent's capture path, which the smoke test
+  # already covers.
 
   # ── Dashboard (React/TypeScript) ─────────────────────────────────────────
   # Uncomment when dashboard/ is created (Phase 3)

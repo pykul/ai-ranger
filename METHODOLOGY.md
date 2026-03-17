@@ -5,7 +5,7 @@
 > that plans before it builds. Run an alignment audit at the end of every phase.
 > Never let the AI drift from the architecture without documenting why.
 
-![The AI-Assisted Development Loop](./methodology-diagram.svg)
+![The AI-Assisted Development Loop](./assets/methodology-diagram.svg)
 
 ---
 

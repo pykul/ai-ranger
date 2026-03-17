@@ -128,11 +128,11 @@ protoc --version          # libprotoc 3+
 git clone https://github.com/pykul/ai-ranger
 cd ai-ranger
 cp .env.example .env
-make dev
+make dev-reset
 ```
 
-The command builds all images and waits for every service to report healthy before
-returning. When it finishes, all 8 services are running.
+This tears down any existing volumes, builds all images, and waits for every service
+to report healthy before returning. Use `make dev` on subsequent runs to preserve data.
 
 **Open http://localhost:8000 in your browser to see the dashboard.**
 

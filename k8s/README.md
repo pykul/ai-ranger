@@ -92,6 +92,10 @@ a k8s Job for migrations in production.
 | `CLICKHOUSE_DATABASE` | No | ClickHouse database name (default: `default`) |
 | `API_SERVER_PORT` | No | Listen port (default: `8081`) |
 | `SHUTDOWN_TIMEOUT_SECS` | No | Graceful shutdown timeout (default: `30`) |
+| `ENVIRONMENT` | Yes | Set to `production` to enable JWT auth |
+| `JWT_SECRET` | Yes (prod) | HMAC-SHA256 signing key for JWT tokens (**use a k8s Secret**) |
+| `ADMIN_EMAIL` | Yes (prod) | Admin login email (**use a k8s Secret**) |
+| `ADMIN_PASSWORD` | Yes (prod) | Admin password, plaintext (**use a k8s Secret**) |
 
 ---
 
@@ -137,6 +141,21 @@ metadata:
 type: Opaque
 stringData:
   RABBITMQ_URL: "amqp://user:pass@rabbitmq:5672/"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ai-ranger-auth
+type: Opaque
+stringData:
+  JWT_SECRET: "generated-with-openssl-rand-hex-32"
+  ADMIN_EMAIL: "admin@example.com"
+  ADMIN_PASSWORD: "your-secure-password"  # plaintext, hashed in memory at startup
 ```
 
 Reference these in pod specs via `envFrom: [{ secretRef: { name: ai-ranger-db } }]`.
+
+**Important:** `JWT_SECRET`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` must be in a k8s
+Secret, not a ConfigMap. These are credentials and must not be stored in plaintext
+in version control or ConfigMaps.

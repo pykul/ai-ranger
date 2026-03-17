@@ -6,8 +6,11 @@
 package config
 
 import (
+	"log"
 	"os"
 	"strconv"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Config holds all runtime configuration loaded from environment variables.
@@ -30,6 +33,24 @@ type Config struct {
 
 	// ShutdownTimeoutSecs is how long to wait for in-flight work before force-stopping.
 	ShutdownTimeoutSecs int
+
+	// Environment is "development" or "production". Controls auth behavior.
+	// In development, auth middleware is bypassed entirely.
+	Environment string
+
+	// JWTSecret is the HMAC-SHA256 signing key for JWT tokens (production only).
+	JWTSecret string
+
+	// AdminEmail is the single admin user's email (production only).
+	AdminEmail string
+
+	// AdminPassword is the single admin user's plaintext password (production only).
+	// Hashed once in memory at startup via bcrypt. The plaintext is not retained.
+	AdminPassword string
+
+	// AdminPasswordHash is the bcrypt hash of AdminPassword, computed once at startup.
+	// Used by the login handler for comparison. Empty in development mode.
+	AdminPasswordHash []byte
 }
 
 // defaultDatabaseURL is the fallback DSN for local development.
@@ -50,9 +71,27 @@ const defaultAPIServerPort = 8081
 // defaultShutdownTimeoutSecs is the fallback graceful shutdown timeout.
 const defaultShutdownTimeoutSecs = 30
 
+// defaultEnvironment is the fallback environment mode.
+// Development disables auth; production requires JWT.
+const defaultEnvironment = "development"
+
 // Load reads all environment variables and returns a Config struct.
 // Missing variables fall back to sensible defaults for local development.
+// In production, ADMIN_PASSWORD is hashed once via bcrypt and the plaintext
+// is not retained in the struct.
 func Load() Config {
+	env := envOrDefault("ENVIRONMENT", defaultEnvironment)
+	plainPassword := os.Getenv("ADMIN_PASSWORD")
+
+	var passwordHash []byte
+	if env != "development" && plainPassword != "" {
+		var err error
+		passwordHash, err = bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
+		if err != nil {
+			log.Fatalf("[config] Failed to hash ADMIN_PASSWORD: %v", err)
+		}
+	}
+
 	return Config{
 		DatabaseURL:         envOrDefault("DATABASE_URL", defaultDatabaseURL),
 		ClickHouseAddr:      envOrDefault("CLICKHOUSE_ADDR", defaultClickHouseAddr),
@@ -60,6 +99,10 @@ func Load() Config {
 		RabbitMQURL:         envOrDefault("RABBITMQ_URL", defaultRabbitMQURL),
 		APIServerPort:       envOrDefaultInt("API_SERVER_PORT", defaultAPIServerPort),
 		ShutdownTimeoutSecs: envOrDefaultInt("SHUTDOWN_TIMEOUT_SECS", defaultShutdownTimeoutSecs),
+		Environment:         env,
+		JWTSecret:           os.Getenv("JWT_SECRET"),
+		AdminEmail:          os.Getenv("ADMIN_EMAIL"),
+		AdminPasswordHash:   passwordHash,
 	}
 }
 

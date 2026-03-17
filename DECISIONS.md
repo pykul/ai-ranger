@@ -823,8 +823,16 @@ password resets is out of scope for Phase 3. The reasoning:
   emails, password reset flow, and role system for a tool that currently has one
   class of user (admin) is over-engineering.
 - **Environment variables are the right primitive.** `ADMIN_EMAIL` and
-  `ADMIN_PASSWORD` (bcrypt hash) are set once during deployment. The login
-  endpoint checks them directly. No database query, no user table, no migration.
+  `ADMIN_PASSWORD` (plaintext) are set once during deployment. The password
+  is hashed via bcrypt once at startup and the plaintext is not retained in
+  the config struct. The login endpoint compares against the in-memory hash.
+  No database query, no user table, no migration.
+- **Plaintext password in the environment, not a pre-generated hash.** bcrypt
+  hashing at login time is intentionally expensive and only appropriate for
+  the initial verification. Subsequent requests use JWT validation which is
+  cheap. Requiring admins to pre-hash their password adds unnecessary friction
+  and tooling requirements (htpasswd, bcrypt CLI) with no security benefit
+  since transport is HTTPS and the environment variable is already a secret.
 - **Reversible.** If real demand emerges for multi-user access (e.g. read-only
   viewers, per-team scoping), a users table can be added in a future phase. The
   JWT infrastructure built now carries forward unchanged: the only change is

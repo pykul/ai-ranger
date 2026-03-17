@@ -42,7 +42,7 @@ func main() {
 	}
 	log.Println("[api] Connected to ClickHouse")
 
-	router := api.NewRouter(pg, ch)
+	router := api.NewRouter(pg, ch, cfg)
 
 	addr := fmt.Sprintf(":%d", cfg.APIServerPort)
 	srv := &http.Server{

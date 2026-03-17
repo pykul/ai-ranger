@@ -1438,6 +1438,8 @@ This is required for community adoption.
 - `make dev` brings up the full stack end to end
 
 ### Phase 3 - Dashboard MVP (3-4 weeks)
+- Authentication: JWT, single admin user, environment-aware (disabled in dev)
+- Login page in the dashboard
 - Fleet overview page
 - Provider breakdown page
 - User activity table
@@ -1563,6 +1565,58 @@ to install on machines that monitor network traffic.
 
 ---
 
+## Authentication
+
+Authentication is **environment-aware**. The behavior differs between development
+and production to preserve the local developer experience unchanged.
+
+**Development (`ENVIRONMENT=development`):** Auth is disabled entirely. The Go Query
+API accepts all requests without a token. The dashboard has no login screen. This is
+the default behavior in the local Docker Compose stack and must not change.
+
+**Production (`ENVIRONMENT=production`):** JWT authentication is required on every
+Go Query API request except `/health` and `/v1/auth/*`. The dashboard shows a login
+screen.
+
+### Single admin user
+
+The dashboard has a single admin user. There is no user management system, no users
+table, no Alembic migration, and no invite or password reset flows. The admin
+credentials are set via environment variables and checked directly at login time.
+
+### Auth endpoints (Go Query API)
+
+Two auth endpoints are added to the Go Query API:
+
+- **`POST /v1/auth/login`** - Accepts `{ "email": "...", "password": "..." }`. Checks
+  the submitted email and password against `ADMIN_EMAIL` and `ADMIN_PASSWORD` environment
+  variables. `ADMIN_PASSWORD` is plaintext in the environment and hashed once in memory
+  at startup via bcrypt. On success, returns a signed
+  JWT access token (24-hour expiry) and a refresh token.
+
+- **`POST /v1/auth/refresh`** - Accepts `{ "refresh_token": "..." }`. Returns a new
+  access token if the refresh token is valid.
+
+### Auth middleware
+
+In production, the Go Query API auth middleware validates the `Authorization: Bearer <jwt>`
+header on every protected request. In development, the middleware is a no-op that passes
+all requests through. The environment check reads `ENVIRONMENT` from the Go config struct
+at startup - there is no per-request overhead.
+
+### Auth environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `JWT_SECRET` | Secret key for signing JWT tokens (production only) |
+| `ADMIN_EMAIL` | Admin login email (production only) |
+| `ADMIN_PASSWORD` | Admin password, plaintext - hashed in memory at startup (production only) |
+
+These have no effect in development. They are not required in `.env` for local
+development and are intentionally absent from the default Docker Compose configuration.
+
+---
+
 ## Configuration and Secrets
 
 All runtime configuration comes from environment variables. No hardcoded hostnames,
@@ -1608,6 +1662,10 @@ via `env_file` and `${VAR}` interpolation. No credentials are hardcoded in the c
 | `CLICKHOUSE_DATABASE` | ClickHouse database name (default: `default`) |
 | `RABBITMQ_URL` | AMQP connection URL (ingest only) |
 | `API_SERVER_PORT` | API server listen port (default: 8081) |
+| `ENVIRONMENT` | `development` disables auth; `production` requires JWT (default: `development`) |
+| `JWT_SECRET` | Secret key for signing JWT tokens (production only, no effect in dev) |
+| `ADMIN_EMAIL` | Admin login email (production only, no effect in dev) |
+| `ADMIN_PASSWORD` | Admin password, plaintext - hashed in memory at startup (production only, no effect in dev) |
 
 **Infrastructure (Docker Compose):**
 

@@ -46,6 +46,9 @@ jobs:
         shell: pwsh
         run: choco install protoc -y
 
+      - name: Build
+        run: cargo build
+
       - name: Clippy
         run: cargo clippy -- -D warnings
 

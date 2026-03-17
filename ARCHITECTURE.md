@@ -195,18 +195,15 @@ ai-ranger/
 │   ├── nginx.conf              # SPA fallback for client-side routing
 │   ├── src/
 │   │   ├── pages/
-│   │   │   ├── Overview.tsx        # Fleet overview landing page
-│   │   │   ├── Fleet.tsx           # Enrolled agents table
-│   │   │   ├── Providers.tsx       # Provider breakdown
-│   │   │   ├── Users.tsx           # Per-user activity table
-│   │   │   ├── Events.tsx          # Raw event search
-│   │   │   ├── Tokens.tsx          # Enrollment token management
+│   │   │   ├── Overview.tsx        # Dashboard: stats, chart, ranked lists
+│   │   │   ├── Events.tsx          # Raw event search with pagination
+│   │   │   ├── Admin.tsx           # Fleet + token management (tabs)
 │   │   │   └── Login.tsx           # Login page (production only)
 │   │   ├── layouts/
-│   │   │   └── DashboardLayout.tsx # Sidebar + header + content
-│   │   ├── lib/                    # API client, auth, utilities
-│   │   ├── hooks/                  # React hooks (auth context)
-│   │   └── components/ui/          # shadcn/ui components
+│   │   │   └── DashboardLayout.tsx # Sidebar (Dashboard, Events, Admin) + time range
+│   │   ├── lib/                    # API client, auth, formatting, types
+│   │   ├── hooks/                  # Auth, dashboard data, events, time range
+│   │   └── components/             # TimeRangeSelector
 │   └── package.json
 │
 ├── providers/
@@ -218,7 +215,7 @@ ai-ranger/
 │   ├── docker-compose.dev.yml  # Dev overrides (source mounts, hot reload)
 │   ├── docker-compose.prod.yml # Production overrides (TLS, no direct ports)
 │   ├── nginx/
-│   │   ├── nginx.dev.conf      # Dev routing (port 80, no TLS)
+│   │   ├── nginx.dev.conf      # Dev routing (port 8000, no TLS)
 │   │   └── nginx.prod.conf     # Production routing (port 443, TLS)
 │   ├── clickhouse/
 │   │   └── init.sql            # ClickHouse schema (plain SQL - no ORM for ClickHouse)
@@ -355,7 +352,7 @@ instead of directly to the gateway port. nginx handles TLS termination.
 
 | File | Environment | Description |
 |---|---|---|
-| `docker/nginx/nginx.dev.conf` | Development | Port 80, no TLS |
+| `docker/nginx/nginx.dev.conf` | Development | Port 8000, no TLS |
 | `docker/nginx/nginx.prod.conf` | Production | Port 443 with TLS, port 80 redirects to 443 |
 | `dashboard/nginx.conf` | Both | Dashboard container internal config (SPA fallback) |
 
@@ -1013,6 +1010,7 @@ CREATE TABLE ai_events (
     model_hint      LowCardinality(String),
     process_name    LowCardinality(String),
     process_path    String,
+    src_ip          String,
     detection_method Enum8('sni'=1, 'dns'=2, 'ip_range'=3, 'tcp_heuristic'=4),
     capture_mode    Enum8('dns_sni'=1, 'mitm'=2)
 )
@@ -1020,6 +1018,13 @@ ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (org_id, timestamp, agent_id, provider)
 TTL timestamp + INTERVAL 1 YEAR;
+```
+
+**Schema changes require volume recreation.** ClickHouse loads `init.sql` only on
+first container start. To apply schema changes, destroy the volume and restart:
+
+```bash
+make dev-reset    # tears down all volumes, restarts with fresh schemas
 ```
 
 ### RabbitMQ - event queue
@@ -1270,8 +1275,8 @@ Ingest endpoints are served by the FastAPI gateway (Swagger UI at `http://localh
 All query and management endpoints are served by the Go API server (Swagger UI at
 `http://localhost:8081/docs`). The dashboard never talks to the gateway directly.
 
-In development, these are also accessible via nginx: `http://localhost/ingest/docs`
-for the gateway and `http://localhost/api/docs` for the API server.
+In development, these are also accessible via nginx: `http://localhost:8000/ingest/docs`
+for the gateway and `http://localhost:8000/api/docs` for the API server.
 
 ```
 # FastAPI Gateway - agent-facing only (Swagger: http://localhost:8080/docs)
@@ -1281,15 +1286,20 @@ GET  /v1/agents/providers    -> fetch latest providers.toml
 GET  /v1/agents/version      -> check for agent updates
 
 # Go Query API - dashboard and admin facing (Swagger: http://localhost:8081/docs)
-GET  /v1/dashboard/overview           -> org-wide summary stats
-GET  /v1/dashboard/providers          -> provider breakdown with traffic
-GET  /v1/dashboard/users              -> per-user activity table
-GET  /v1/dashboard/traffic/timeseries -> hourly/daily traffic by provider
+GET  /v1/dashboard/overview           -> summary stats (?days=7|30|90)
+GET  /v1/dashboard/providers          -> provider breakdown (?days=7)
+GET  /v1/dashboard/users              -> per-user activity (?days=7&provider=openai)
+GET  /v1/dashboard/traffic/timeseries -> hourly traffic by provider (?days=7)
 GET  /v1/dashboard/fleet              -> all enrolled agents + status
+GET  /v1/events                       -> paginated raw events (?q=term&days=7&page=1&limit=25&sort=timestamp&order=desc)
 
+GET    /v1/admin/tokens       -> list enrollment tokens
 POST   /v1/admin/tokens       -> create enrollment token
 DELETE /v1/admin/tokens/:id   -> revoke token
 DELETE /v1/admin/agents/:id   -> revoke agent
+
+POST /v1/auth/login           -> authenticate, returns JWT + refresh token
+POST /v1/auth/refresh         -> exchange refresh token for new JWT
 ```
 
 ---
@@ -1436,13 +1446,16 @@ This is required for community adoption.
 
 ### Phase 3 - Dashboard MVP (3-4 weeks)
 - Authentication: JWT, single admin user, environment-aware (disabled in dev)
-- Login page in the dashboard
-- Fleet overview page
-- Provider breakdown page
-- User activity table
-- Traffic timeseries charts
-- Enrollment token generation UI
-- dashboard/Makefile working
+- Login page in the dashboard (production only)
+- nginx as single ingress point (port 8000 dev, port 443 prod with TLS)
+- Dashboard page: stat cards, timeseries chart, top providers/users ranked lists
+- Events page: full-text search, paginated table, sortable, expandable row detail
+- Admin section: fleet management + enrollment token management
+- Time range selector (7d/30d/90d) applies globally to all views
+- Provider filter via chart legend click filters all dashboard data
+- GET /v1/events endpoint with search, pagination, time filtering
+- All dashboard endpoints support ?days query parameter
+- dashboard/Makefile working, CI job enabled
 
 ### Phase 4 - Polish + Windows Installer (2-3 weeks)
 - Windows installer (PowerShell) + Windows service registration

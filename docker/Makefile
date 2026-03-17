@@ -13,7 +13,7 @@ up:                ## Start full stack (production-like)
 dev:               ## Start full stack (returns when all services are healthy)
 	DOCKER_BUILDKIT=0 $(COMPOSE_DEV) up -d --build --wait
 	@echo ""
-	@echo "All services healthy. Dashboard: http://localhost"
+	@echo "All services healthy. Dashboard: http://localhost:8000"
 	@echo "Gateway Swagger:  http://localhost:8080/docs"
 	@echo "API Swagger:      http://localhost:8081/docs"
 	@echo "RabbitMQ:         http://localhost:15672"
@@ -24,7 +24,7 @@ dev-reset:         ## Tear down everything including volumes, then start dev (us
 	$(COMPOSE) down -v
 	DOCKER_BUILDKIT=0 $(COMPOSE_DEV) up -d --build --wait
 	@echo ""
-	@echo "All services healthy. Dashboard: http://localhost"
+	@echo "All services healthy. Dashboard: http://localhost:8000"
 
 down:              ## Stop all services
 	$(COMPOSE) down

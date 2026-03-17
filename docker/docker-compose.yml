@@ -8,7 +8,7 @@
 # All credentials and configuration come from ../.env (see .env.example).
 #
 # After startup:
-#   Dashboard:           http://localhost (via nginx)
+#   Dashboard:           http://localhost:8000 (via nginx)
 #   Gateway Swagger UI:  http://localhost:8080/docs
 #   Go API Swagger UI:   http://localhost:8081/docs
 #   RabbitMQ Management: http://localhost:15672
@@ -22,7 +22,7 @@ services:
     volumes:
       - ./nginx/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
-      - "80:80"
+      - "8000:8000"
     depends_on:
       gateway:
         condition: service_healthy

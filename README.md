@@ -134,11 +134,11 @@ make dev
 The command builds all images and waits for every service to report healthy before
 returning. When it finishes, all 8 services are running.
 
-**Open http://localhost in your browser to see the dashboard.**
+**Open http://localhost:8000 in your browser to see the dashboard.**
 
 | Service | URL |
 |---------|-----|
-| Dashboard | http://localhost |
+| Dashboard | http://localhost:8000 |
 | Gateway Swagger UI | http://localhost:8080/docs |
 | API Server Swagger UI | http://localhost:8081/docs |
 | RabbitMQ Management | http://localhost:15672 |
@@ -156,10 +156,10 @@ capturing in one step:
 cargo build --manifest-path agent/Cargo.toml
 
 # Linux / macOS
-sudo ./target/debug/ai-ranger --token=tok_test_dev --backend=http://localhost/ingest
+sudo ./target/debug/ai-ranger --token=tok_test_dev --backend=http://localhost:8000/ingest
 
 # Windows (run as Administrator)
-.\target\debug\ai-ranger.exe --token=tok_test_dev --backend=http://localhost/ingest
+.\target\debug\ai-ranger.exe --token=tok_test_dev --backend=http://localhost:8000/ingest
 ```
 
 On first run, the agent enrolls with the backend and begins capturing immediately.
@@ -183,10 +183,10 @@ Check that events flowed through the pipeline:
 
 ```bash
 # See your enrolled agent
-curl -s http://localhost/api/v1/dashboard/fleet | python3 -m json.tool
+curl -s http://localhost:8000/api/v1/dashboard/fleet | python3 -m json.tool
 
 # See detected events (once ClickHouse has ingested)
-curl -s http://localhost/api/v1/dashboard/overview | python3 -m json.tool
+curl -s http://localhost:8000/api/v1/dashboard/overview | python3 -m json.tool
 ```
 
 ---

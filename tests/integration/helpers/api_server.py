@@ -47,6 +47,10 @@ class APIServer:
         resp.raise_for_status()
         return resp.json()
 
+    def events(self, **params: str | int) -> httpx.Response:
+        """GET /v1/events — returns raw response for flexible assertions."""
+        return self._client.get("/v1/events", params=params)
+
     def create_token(self, org_id: str, label: str, max_uses: int) -> dict:
         """POST /v1/admin/tokens — creates enrollment token."""
         resp = self._client.post(

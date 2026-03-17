@@ -87,6 +87,7 @@ To build and develop AI Ranger, you need the following tools:
 | Tool | Minimum Version | Purpose |
 |------|----------------|---------|
 | Docker + Docker Compose | Docker 24+ | Running the full platform stack |
+| Node.js | 22+ | Building and running the dashboard |
 | Rust (via rustup) | 1.75+ (see `agent/Cargo.toml`) | Building the agent |
 | Go | 1.22+ (see `workers/go.mod`) | Building the workers |
 | Python | 3.12+ | Running the gateway |
@@ -110,6 +111,7 @@ powershell -ExecutionPolicy Bypass -File scripts/install-deps/windows.ps1
 ```bash
 docker --version          # Docker version 24+
 docker compose version    # Docker Compose version 2+
+node --version            # v22+
 rustc --version           # rustc 1.75+
 go version                # go1.22+
 python3 --version         # Python 3.12+
@@ -129,17 +131,20 @@ cp .env.example .env
 make dev
 ```
 
-Wait for all services to start. You should see health checks passing for all containers.
+The command builds all images and waits for every service to report healthy before
+returning. When it finishes, all 8 services are running.
+
+**Open http://localhost in your browser to see the dashboard.**
 
 | Service | URL |
 |---------|-----|
-| Dashboard | http://localhost (via nginx) |
+| Dashboard | http://localhost |
 | Gateway Swagger UI | http://localhost:8080/docs |
 | API Server Swagger UI | http://localhost:8081/docs |
 | RabbitMQ Management | http://localhost:15672 |
 
-All services are accessible through nginx at `http://localhost`. The gateway and API
-server also expose direct ports for debugging.
+Run `make logs` to view service logs. The gateway and API server also expose
+direct ports for debugging.
 
 ### 2. Build, enroll, and run the agent
 

@@ -7,7 +7,10 @@ import signal
 
 
 def is_root() -> bool:
-    """Return True if running as root (required for raw socket capture)."""
+    """Return True if running with elevated privileges (root on Unix, Administrator on Windows)."""
+    if os.name == "nt":
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
     return os.getuid() == 0
 
 
@@ -94,4 +97,4 @@ class AgentProcess:
 
     def get_stderr_lines(self) -> list[str]:
         """Return stderr lines (log messages)."""
-        return [l for l in self._stdout_lines if not l.startswith("{")]
+        return [line for line in self._stdout_lines if not line.startswith("{")]

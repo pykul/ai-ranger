@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean proto dev down logs help
+.PHONY: all build test lint clean proto dev down logs help test-integration
 
 help:              ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -29,6 +29,9 @@ down:              ## Stop local dev environment
 
 logs:              ## Tail logs from all services
 	$(MAKE) -C docker logs
+
+test-integration:  ## Build agent, start backend, run all integration tests (requires sudo)
+	@bash tests/run-integration.sh
 
 clean:             ## Clean all build artifacts
 	$(MAKE) -C agent clean

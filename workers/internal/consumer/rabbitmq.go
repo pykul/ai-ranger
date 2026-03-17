@@ -20,7 +20,7 @@ const connectRetryIntervalSecs = 3
 
 // Start connects to RabbitMQ and consumes from the ingest queue.
 // Blocks until the channel is closed or an error occurs.
-func Start(url string, w *writer.Writer) error {
+func Start(url string, chWriter *writer.ClickHouseWriter, pgWriter *writer.PostgresWriter) error {
 	conn, err := dialWithRetry(url)
 	if err != nil {
 		return err
@@ -33,7 +33,7 @@ func Start(url string, w *writer.Writer) error {
 	}
 
 	log.Printf("[ingest] Consuming from %s", constants.RabbitMQQueue)
-	consumeMessages(msgs, w)
+	consumeMessages(msgs, chWriter, pgWriter)
 	return nil
 }
 
@@ -80,9 +80,10 @@ func setupChannel(conn *amqp.Connection) (<-chan amqp.Delivery, error) {
 }
 
 // consumeMessages processes messages from the delivery channel.
-// Each message is deserialized as an EventBatch and passed to the writer.
-// Failed messages are dead-lettered via nack.
-func consumeMessages(msgs <-chan amqp.Delivery, w *writer.Writer) {
+// Each message is deserialized as an EventBatch and written to ClickHouse and
+// Postgres independently. A failure in one writer does not block the other.
+// The message is only nacked if deserialization or the ClickHouse write fails.
+func consumeMessages(msgs <-chan amqp.Delivery, chWriter *writer.ClickHouseWriter, pgWriter *writer.PostgresWriter) {
 	for msg := range msgs {
 		var batch rangerpb.EventBatch
 		if err := proto.Unmarshal(msg.Body, &batch); err != nil {
@@ -90,8 +91,17 @@ func consumeMessages(msgs <-chan amqp.Delivery, w *writer.Writer) {
 			_ = msg.Nack(false, false)
 			continue
 		}
-		if err := w.WriteEvents(&batch); err != nil {
-			log.Printf("[ingest] Failed to write events: %v", err)
+
+		// Write events to ClickHouse.
+		agentID, chErr := chWriter.WriteEvents(&batch)
+		if chErr != nil {
+			log.Printf("[ingest] ClickHouse write failed: %v", chErr)
+		}
+
+		// Update agent last_seen_at in Postgres independently.
+		pgWriter.UpdateAgentLastSeen(agentID)
+
+		if chErr != nil {
 			_ = msg.Nack(false, false)
 			continue
 		}

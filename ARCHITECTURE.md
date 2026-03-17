@@ -263,52 +263,62 @@ ai-ranger/
 │  │              stdout    file   http (protobuf)          │    │
 │  └────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
-                              │ HTTPS POST
-                              │ protobuf EventBatch
-                              │ Bearer: <agent_id>
-                              ▼
+         │                                     │
+         │ (once) POST /v1/agents/enroll       │ (ongoing) POST /v1/ingest
+         │ JSON + enrollment token             │ protobuf EventBatch
+         │                                     │ Bearer: <agent_id>
+         ▼                                     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              FastAPI Gateway (Python)                             │
+│              FastAPI Gateway (Python)                            │
 │                                                                  │
-│  - Verify agent_id Bearer token (Postgres lookup)               │
-│  - Deserialize protobuf EventBatch                              │
-│  - Publish raw bytes to RabbitMQ exchange                       │
-│  - Return 200 immediately                                        │
-│  - Nothing else. No processing, no DB writes.                   │
+│  POST /v1/agents/enroll  →  validate token, write to Postgres,  │
+│                              return org_id + agent_id (sync)     │
+│                              No RabbitMQ.                        │
+│                                                                  │
+│  POST /v1/ingest         →  verify Bearer, deserialize protobuf,│
+│                              publish to RabbitMQ, return 200.    │
+│                              No DB writes.                       │
 │                                                                  │
 │  Uvicorn + async workers for concurrency                        │
 │  Swagger UI at /docs (auto-generated from Pydantic models)      │
-└───────────────────────────┬─────────────────────────────────────┘
-                             │
-                         RabbitMQ
-                      (ranger.events)
-                             │
-              ┌──────────────┴──────────────┐
-              │                             │
-              ▼                             ▼
-┌─────────────────────┐        ┌────────────────────────┐
-│  Go Ingest Workers  │        │   Go Query API          │
-│                     │        │                         │
-│  Goroutine pool     │        │  Chi router             │
-│  Consume from queue │        │  Goroutine per request  │
-│  Batch write to     │        │  Dashboard endpoints    │
-│  ClickHouse         │        │  Fleet management       │
-│  Update Postgres    │        │  Token management       │
-│  agent last_seen    │        │                         │
-└──────────┬──────────┘        └────────────┬────────────┘
-           │                                │
-           ▼                                ▼
-┌────────────────────┐          ┌────────────────────┐
-│    ClickHouse      │          │      Postgres       │
-│    (events)        │◄─────────│    (identity)       │
-└────────────────────┘          └────────────────────┘
-                                          │
-                                          ▼
-                               ┌────────────────────┐
-                               │  Dashboard (React)  │
-                               │  talks to Go API    │
-                               │  only               │
-                               └────────────────────┘
+└───────────────┬─────────────────────────────┬───────────────────┘
+                │ enrollment                   │ ingest
+                ▼                              ▼
+           Postgres                        RabbitMQ
+         (direct write)                 (ranger.events)
+                                               │
+                                               ▼
+                                   ┌──────────────────────┐
+                                   │  Go Ingest Worker     │
+                                   │                       │
+                                   │  Consume from queue   │
+                                   │  Write events to CH   │
+                                   │  Update PG last_seen  │
+                                   │  (independently)      │
+                                   └─────┬───────────┬─────┘
+                                         │           │
+                          (independent)  │           │  (independent)
+                                         ▼           ▼
+                               ┌────────────┐ ┌────────────┐
+                               │ ClickHouse │ │  Postgres  │
+                               │  (events)  │ │ (identity) │
+                               └─────┬──────┘ └──────┬─────┘
+                                     │               │
+                                     ▼               ▼
+                               ┌────────────────────────────┐
+                               │      Go Query API          │
+                               │                            │
+                               │  Reads ClickHouse (events) │
+                               │  Reads Postgres (fleet)    │
+                               │  No gateway, no RabbitMQ   │
+                               └──────────────┬─────────────┘
+                                              │
+                                              ▼
+                                   ┌────────────────────┐
+                                   │  Dashboard (React)  │
+                                   │  talks to Go API    │
+                                   │  only               │
+                                   └────────────────────┘
 ```
 
 ---
@@ -1606,6 +1616,10 @@ via `env_file` and `${VAR}` interpolation. No credentials are hardcoded in the c
 | `POSTGRES_USER` | Postgres superuser name |
 | `POSTGRES_PASSWORD` | Postgres superuser password |
 | `POSTGRES_DB` | Postgres database name |
+| `POSTGRES_HOST` | Postgres hostname (used in docker-compose.yml to construct connection URLs) |
+| `POSTGRES_PORT` | Postgres port (used in docker-compose.yml to construct connection URLs) |
+| `CLICKHOUSE_HOST` | ClickHouse hostname (used in docker-compose.yml to construct CLICKHOUSE_ADDR) |
+| `CLICKHOUSE_PORT` | ClickHouse native protocol port (used in docker-compose.yml to construct CLICKHOUSE_ADDR) |
 | `RABBITMQ_DEFAULT_USER` | RabbitMQ default user (read natively by the image) |
 | `RABBITMQ_DEFAULT_PASS` | RabbitMQ default password |
 
@@ -1635,14 +1649,29 @@ Full Docker Compose stack tests in `tests/integration/`. Two layers:
   and verify events flow through the full pipeline. Require root for raw socket capture.
   Automatically skipped when not running as root.
 
-Run with `pytest tests/integration/ -v`. See `tests/README.md` for details.
+Run everything in one command:
 
-### CI smoke tests
+```bash
+make test-integration
+```
 
-Integration tests run automatically in CI after component builds pass. The CI job
-starts the Docker Compose stack, builds the agent binary, and runs all integration
-tests except those marked `@pytest.mark.network`. Real agent tests run as root
-(GitHub Actions Linux runners are root by default).
+This builds the agent, starts the Docker Compose stack (waiting for health checks),
+installs test dependencies, and runs all integration tests including real agent tests
+with sudo. Platform-specific scripts live in `tests/integration/scripts/`.
+
+See `tests/README.md` for details on test layers and adding new tests.
+
+### CI
+
+Integration tests run automatically in CI after component builds pass:
+
+- **Linux** (`integration-tests` job): Runs `make test-integration` which executes
+  the full suite — synthetic, real agent, dashboard, and pipeline tests. GitHub
+  Actions Linux runners are root by default.
+- **Windows** (`integration-tests-windows` job): Runs only the real agent tests
+  (`test_ingest_real_agent.py`) via `tests/integration/scripts/run-windows.ps1`
+  to validate the Windows detection path (SIO_RCVALL + ETW DNS) against the full
+  backend. GitHub Actions Windows runners have Administrator by default.
 
 ### Mapping to Kubernetes
 

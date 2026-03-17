@@ -1,52 +1,41 @@
-// Package writer handles writing events to ClickHouse and updating Postgres.
+// Package writer handles writing events to ClickHouse.
 package writer
 
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
 	"github.com/pykul/ai-ranger/workers/internal/constants"
-	"github.com/pykul/ai-ranger/workers/internal/models"
 
 	rangerpb "github.com/pykul/ai-ranger/proto/gen/go/ranger/v1"
 )
 
-// Writer writes events to ClickHouse and updates agent metadata in Postgres.
-type Writer struct {
+// ClickHouseWriter writes events to ClickHouse.
+type ClickHouseWriter struct {
 	ch clickhouse.Conn
-	pg *gorm.DB
 }
 
-// New creates a Writer with the given ClickHouse and Postgres connections.
-func New(ch clickhouse.Conn, pg *gorm.DB) *Writer {
-	return &Writer{ch: ch, pg: pg}
+// NewClickHouseWriter creates a ClickHouseWriter with the given connection.
+func NewClickHouseWriter(ch clickhouse.Conn) *ClickHouseWriter {
+	return &ClickHouseWriter{ch: ch}
 }
 
-// WriteEvents inserts events from an EventBatch into ClickHouse and updates
-// the agent's last_seen_at in Postgres.
-func (w *Writer) WriteEvents(batch *rangerpb.EventBatch) error {
+// WriteEvents inserts events from an EventBatch into ClickHouse.
+// Returns the agent UUID extracted from the batch for use by other writers.
+func (w *ClickHouseWriter) WriteEvents(batch *rangerpb.EventBatch) (uuid.UUID, error) {
 	if len(batch.Events) == 0 {
-		return nil
+		return uuid.Nil, nil
 	}
-
-	agentID, err := w.insertClickHouseEvents(batch)
-	if err != nil {
-		return err
-	}
-
-	w.updateAgentLastSeen(agentID)
-	return nil
+	return w.insertClickHouseEvents(batch)
 }
 
 // insertClickHouseEvents batch-inserts all events into ClickHouse.
-// Returns the parsed agent UUID from the last event for Postgres update.
-func (w *Writer) insertClickHouseEvents(batch *rangerpb.EventBatch) (uuid.UUID, error) {
+// Returns the parsed agent UUID from the last event.
+func (w *ClickHouseWriter) insertClickHouseEvents(batch *rangerpb.EventBatch) (uuid.UUID, error) {
 	ctx := context.Background()
 	chBatch, err := w.ch.PrepareBatch(ctx, fmt.Sprintf(
 		"INSERT INTO %s", constants.ClickHouseEventsTable,
@@ -75,19 +64,6 @@ func (w *Writer) insertClickHouseEvents(batch *rangerpb.EventBatch) (uuid.UUID, 
 		return uuid.Nil, fmt.Errorf("send clickhouse batch: %w", err)
 	}
 	return agentID, nil
-}
-
-// updateAgentLastSeen sets the agent's last_seen_at timestamp in Postgres.
-// Logs errors rather than returning them — a failed metadata update should
-// not prevent event processing.
-func (w *Writer) updateAgentLastSeen(agentID uuid.UUID) {
-	if agentID == uuid.Nil {
-		return
-	}
-	now := time.Now().UTC()
-	if err := w.pg.Model(&models.Agent{}).Where("id = ?", agentID).Update("last_seen_at", now).Error; err != nil {
-		log.Printf("[writer] Failed to update agent last_seen_at: %v", err)
-	}
 }
 
 // detectionMethodString converts the protobuf enum to the ClickHouse Enum8 string value.

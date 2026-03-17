@@ -3,7 +3,7 @@
 import uuid
 
 from helpers.proto import encode_batch, make_test_batch, make_test_event
-from helpers.wait import wait_for_clickhouse_event
+from helpers.wait import wait_for_clickhouse_event, wait_for_condition
 
 
 def test_ingest_single_event(gateway_api, enrolled_agent, clickhouse_client):
@@ -67,7 +67,7 @@ def test_ingest_invalid_protobuf(gateway_api, enrolled_agent):
 
 
 def test_ingest_updates_last_seen(gateway_api, enrolled_agent, api_server):
-    """agent.last_seen_at in Postgres is updated after ingest."""
+    """agent.last_seen_at in Postgres is updated after ingest (async via Go worker)."""
     agent_id = enrolled_agent["agent_id"]
     event = make_test_event(agent_id)
     batch = make_test_batch(agent_id, [event])
@@ -76,10 +76,12 @@ def test_ingest_updates_last_seen(gateway_api, enrolled_agent, api_server):
     resp = gateway_api.ingest(agent_id, body)
     assert resp.status_code == 200
 
-    agents = api_server.fleet()
-    agent = next((a for a in agents if a["ID"] == agent_id), None)
-    assert agent is not None
-    assert agent["LastSeenAt"] is not None
+    def last_seen_updated():
+        agents = api_server.fleet()
+        agent = next((a for a in agents if a["ID"] == agent_id), None)
+        return agent is not None and agent["LastSeenAt"] is not None
+
+    wait_for_condition(last_seen_updated, timeout_secs=15, description="agent last_seen_at updated")
 
 
 def test_all_detection_methods(gateway_api, enrolled_agent, clickhouse_client):

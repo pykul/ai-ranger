@@ -49,14 +49,11 @@ jobs:
       - name: Build
         run: cargo build
 
-      - name: Build release (for smoke test)
-        run: cargo build --release
+      - name: Clippy
+        run: cargo clippy -- -D warnings
 
       - name: Test
         run: cargo test
-
-      - name: Clippy
-        run: cargo clippy -- -D warnings
 
       - name: Format check
         if: runner.os == 'Linux'
@@ -64,15 +61,14 @@ jobs:
 
       # ── Smoke tests ────────────────────────────────────────────────────
       # Start the agent, trigger AI provider traffic, verify JSON output.
-      # Linux and Windows should work reliably with root/Administrator on
-      # GitHub-hosted runners. macOS BPF access may be restricted by the
-      # runner environment - failure there does not indicate an agent bug.
+      # Uses debug binary (already built by clippy/test) to avoid a slow
+      # release compilation. Release builds are validated in release.yml.
 
       - name: Smoke test (Linux)
         if: runner.os == 'Linux'
         run: |
           echo "Running as: $(whoami)"
-          BINARY="${GITHUB_WORKSPACE}/target/release/ai-ranger"
+          BINARY="${GITHUB_WORKSPACE}/target/debug/ai-ranger"
           ls -la "$BINARY"
           /usr/bin/sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
           sleep 3
@@ -87,7 +83,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           echo "Running as: $(whoami)"
-          BINARY="${GITHUB_WORKSPACE}/target/release/ai-ranger"
+          BINARY="${GITHUB_WORKSPACE}/target/debug/ai-ranger"
           ls -la "$BINARY"
           /usr/bin/sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
           sleep 3
@@ -110,7 +106,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Start-Process -FilePath "$env:GITHUB_WORKSPACE\target\release\ai-ranger.exe" `
+          Start-Process -FilePath "$env:GITHUB_WORKSPACE\target\debug\ai-ranger.exe" `
             -RedirectStandardOutput "C:\ai-ranger-test.log" `
             -RedirectStandardError "C:\ai-ranger-test-err.log" `
             -NoNewWindow
@@ -244,6 +240,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -251,46 +251,20 @@ jobs:
       - name: Install protoc
         run: sudo apt-get install -y protobuf-compiler
 
-      - name: Create .env from example
-        run: cp .env.example .env
-
-      - name: Start Docker Compose stack
-        run: |
-          cd docker
-          docker compose --env-file ../.env up -d --build
-
-      - name: Wait for services to be healthy
-        run: |
-          for i in $(seq 1 45); do
-            GW=$(curl -sf http://localhost:8080/health 2>/dev/null || true)
-            API=$(curl -sf http://localhost:8081/health 2>/dev/null || true)
-            if echo "$GW" | grep -q '"ok"' && echo "$API" | grep -q '"ok"'; then
-              echo "All services healthy after ${i}s"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Services failed to become healthy"
-          docker compose --env-file .env -f docker/docker-compose.yml ps
-          docker compose --env-file .env -f docker/docker-compose.yml logs
-          exit 1
-
-      - name: Build agent binary
-        run: cargo build --release --manifest-path agent/Cargo.toml
-
-      - name: Install test dependencies
-        run: pip install -r tests/integration/requirements.txt
-
       - name: Run integration tests
-        run: /usr/bin/sudo -E $(which pytest) tests/integration/ -v --tb=short -m "not network"
-        env:
-          AGENT_BINARY: target/release/ai-ranger
+        run: make test-integration
 
       - name: Cleanup
         if: always()
-        run: |
-          cd docker
-          docker compose --env-file ../.env down -v
+        run: docker compose --env-file .env -f docker/docker-compose.yml down -v
+
+  # Windows agent detection (SIO_RCVALL + ETW DNS) is validated by the
+  # agent job's smoke test on windows-latest. A separate Windows integration
+  # test job was removed because the backend pipeline tests (Docker Compose
+  # with Postgres, ClickHouse, RabbitMQ) do not test anything Windows-specific.
+  # Those Linux containers run identically regardless of the host OS. The only
+  # Windows-specific code is the agent's capture path, which the smoke test
+  # already covers.
 
   # ── Dashboard (React/TypeScript) ─────────────────────────────────────────
   # Uncomment when dashboard/ is created (Phase 3)

@@ -20,27 +20,38 @@ Full pipeline tests against the Docker Compose stack. Two categories:
   a real agent or raw socket access. Run on all environments.
 
 - **Real agent tests**: Run the actual compiled agent binary, trigger real network traffic,
-  and verify events flow through the full pipeline. Require root for raw socket capture.
-  Automatically skipped when not running as root.
+  and verify events flow through the full pipeline. Require root/Administrator for raw
+  socket capture. Automatically skipped when not running with elevated privileges.
 
 ### Running Integration Tests
 
+The simplest way to run everything:
+
 ```bash
-# 1. Start the backend
-cp .env.example .env
-make dev
+make test-integration
+```
 
-# 2. Install test dependencies
-pip install -r tests/integration/requirements.txt
+This single command:
+1. Ensures `.env` exists (copies from `.env.example` if missing)
+2. Builds the agent binary in release mode
+3. Starts the Docker Compose stack with `--build --wait` (uses built-in health checks)
+4. Installs Python test dependencies
+5. Runs all integration tests with sudo (including real agent tests)
 
-# 3. Run all integration tests (skips real agent tests if not root)
-pytest tests/integration/ -v
+Platform-specific scripts live in `tests/integration/scripts/`:
 
-# 4. Run real agent tests (requires root)
-sudo pytest tests/integration/test_ingest_real_agent.py -v
+| Script | Platform | What it runs |
+|--------|----------|--------------|
+| `run-linux.sh` | Linux / WSL | Full suite with sudo |
+| `run-macos.sh` | macOS | Full suite with sudo (BPF access) |
+| `run-windows.ps1` | Windows | Real agent tests only (Administrator required) |
 
-# 5. Run with network tests (requires internet access)
-pytest tests/integration/ -v -m "network"
+The entry point `tests/run-integration.sh` detects the OS and dispatches to the right script.
+
+On Windows, run the PowerShell script directly as Administrator:
+
+```powershell
+tests\integration\scripts\run-windows.ps1
 ```
 
 ### Adding New Tests
@@ -57,6 +68,6 @@ pytest tests/integration/ -v -m "network"
   - `proto.py`: Build synthetic protobuf events
   - `wait.py`: Poll-with-timeout (never use `time.sleep()`)
   - `agent.py`: Manage real agent subprocess
-- Tests requiring root: mark with `@pytest.mark.skipif(not is_root(), ...)`
+- Tests requiring root/Administrator: mark with `@pytest.mark.skipif(not is_root(), ...)`
 - Tests requiring internet: mark with `@pytest.mark.network`
 - Every test must be independent and clean up after itself

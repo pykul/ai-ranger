@@ -1,20 +1,40 @@
-"""Real agent binary integration tests. Requires root for raw socket capture."""
+"""Real agent binary integration tests. Requires root/Administrator for raw socket capture."""
 
 import json
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import time
+import urllib.request
 
 import pytest
 
 from helpers.agent import is_root
 
+IS_WINDOWS = sys.platform == "win32"
+
 pytestmark = pytest.mark.skipif(
     not is_root(),
-    reason="Requires root for raw socket capture",
+    reason="Requires root/Administrator for raw socket capture",
 )
+
+
+def _stop_agent(proc):
+    """Stop the agent process. Uses SIGTERM on Unix, terminate() on Windows."""
+    if IS_WINDOWS:
+        proc.terminate()
+    else:
+        proc.send_signal(signal.SIGTERM)
+
+
+def _trigger_ai_traffic():
+    """Make an HTTPS request to an AI provider to generate a capturable event."""
+    try:
+        urllib.request.urlopen("https://api.openai.com", timeout=10)
+    except Exception:
+        pass
 
 
 def test_real_agent_enrollment(agent_binary):
@@ -31,7 +51,7 @@ def test_real_agent_enrollment(agent_binary):
 
 @pytest.mark.network
 def test_real_agent_captures_sni(agent_binary):
-    """Start agent in stdout mode, curl an AI provider, verify JSON event."""
+    """Start agent in stdout mode, trigger AI provider traffic, verify JSON event."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write('[agent]\nmode = "dns-sni"\n\n[[outputs]]\ntype = "stdout"\n')
         config_path = f.name
@@ -44,11 +64,10 @@ def test_real_agent_captures_sni(agent_binary):
         )
         time.sleep(3)
 
-        subprocess.run(["curl", "-s", "https://api.openai.com"],
-                        capture_output=True, timeout=10)
+        _trigger_ai_traffic()
         time.sleep(3)
 
-        proc.send_signal(signal.SIGTERM)
+        _stop_agent(proc)
         stdout, stderr = proc.communicate(timeout=10)
 
         events = []
@@ -80,11 +99,10 @@ def test_real_agent_stdout_mode(agent_binary):
     try:
         time.sleep(3)
 
-        subprocess.run(["curl", "-s", "https://api.openai.com"],
-                        capture_output=True, timeout=10)
+        _trigger_ai_traffic()
         time.sleep(3)
 
-        proc.send_signal(signal.SIGTERM)
+        _stop_agent(proc)
         stdout, _ = proc.communicate(timeout=10)
 
         events = []

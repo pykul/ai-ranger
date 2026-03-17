@@ -46,12 +46,13 @@ run_tests() {
     local sudo_cmd="${2:-}"
 
     step "Running integration tests..."
-    $sudo_cmd env \
+    # Use sudo -E to preserve PATH so the same python3 (with installed deps) is found.
+    $sudo_cmd -E env \
         AGENT_BINARY="$agent_binary" \
         GATEWAY_URL="$GATEWAY_URL" \
         API_URL="$API_URL" \
         SEED_TOKEN="$SEED_TOKEN" \
-        python3 -m pytest "$REPO_ROOT/tests/integration/" -v
+        "$(which python3)" -m pytest "$REPO_ROOT/tests/integration/" -v
 
     echo ""
     step "All integration tests passed."

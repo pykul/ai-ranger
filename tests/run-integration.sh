@@ -7,8 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 case "$(uname -s)" in
-    Linux*)  exec "$SCRIPT_DIR/integration/scripts/run-linux.sh" "$@" ;;
-    Darwin*) exec "$SCRIPT_DIR/integration/scripts/run-macos.sh" "$@" ;;
+    Linux*)  exec bash "$SCRIPT_DIR/integration/scripts/run-linux.sh" "$@" ;;
+    Darwin*) exec bash "$SCRIPT_DIR/integration/scripts/run-macos.sh" "$@" ;;
     MINGW*|MSYS*|CYGWIN*)
         echo "ERROR: Run this from WSL, not native Windows."
         echo "       Windows agents are tested via WSL with Docker Desktop."

@@ -11,6 +11,10 @@ __pycache__/
 # Go
 workers/bin/
 
+# Node
+node_modules/
+dashboard/dist/
+
 # Secrets and local config — never commit
 .env
 config.toml

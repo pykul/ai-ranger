@@ -52,24 +52,20 @@ jobs:
       - name: Test
         run: cargo test
 
-      - name: Build release (for smoke test)
-        run: cargo build --release
-
       - name: Format check
         if: runner.os == 'Linux'
         run: cargo fmt --check
 
       # ── Smoke tests ────────────────────────────────────────────────────
       # Start the agent, trigger AI provider traffic, verify JSON output.
-      # Linux and Windows should work reliably with root/Administrator on
-      # GitHub-hosted runners. macOS BPF access may be restricted by the
-      # runner environment - failure there does not indicate an agent bug.
+      # Uses debug binary (already built by clippy/test) to avoid a slow
+      # release compilation. Release builds are validated in release.yml.
 
       - name: Smoke test (Linux)
         if: runner.os == 'Linux'
         run: |
           echo "Running as: $(whoami)"
-          BINARY="${GITHUB_WORKSPACE}/target/release/ai-ranger"
+          BINARY="${GITHUB_WORKSPACE}/target/debug/ai-ranger"
           ls -la "$BINARY"
           /usr/bin/sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
           sleep 3
@@ -84,7 +80,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           echo "Running as: $(whoami)"
-          BINARY="${GITHUB_WORKSPACE}/target/release/ai-ranger"
+          BINARY="${GITHUB_WORKSPACE}/target/debug/ai-ranger"
           ls -la "$BINARY"
           /usr/bin/sudo "$BINARY" > /tmp/ai-ranger-test.log 2>&1 &
           sleep 3
@@ -107,7 +103,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Start-Process -FilePath "$env:GITHUB_WORKSPACE\target\release\ai-ranger.exe" `
+          Start-Process -FilePath "$env:GITHUB_WORKSPACE\target\debug\ai-ranger.exe" `
             -RedirectStandardOutput "C:\ai-ranger-test.log" `
             -RedirectStandardError "C:\ai-ranger-test-err.log" `
             -NoNewWindow

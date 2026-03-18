@@ -165,7 +165,7 @@ sudo ./target/debug/ai-ranger --token=tok_test_dev --backend=http://localhost:80
 
 # Windows (run as Administrator)
 .\target\debug\ai-ranger.exe --token=tok_test_dev --backend=http://localhost:8000/ingest
-```
+
 
 On first run, the agent enrolls with the backend and begins capturing immediately.
 On subsequent runs, just run the binary with no flags. The enrollment is saved
@@ -192,6 +192,7 @@ Remove-Item "$env:APPDATA\ai-ranger\config.json"
 ```
 
 Then restart the agent with `--token` and `--backend` as shown above.
+
 
 ### 3. Verify end-to-end
 
@@ -332,6 +333,7 @@ ai-ranger --token=tok_your_token --backend=https://your-instance.com/ingest
 
 # Windows (run as Administrator)
 ai-ranger.exe --token=tok_your_token --backend=https://your-instance.com/ingest
+
 ```
 
 The agent enrolls with the backend on first run and starts capturing immediately.

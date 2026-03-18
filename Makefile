@@ -1,6 +1,7 @@
 .PHONY: all build test lint clean proto dev dev-reset down logs help test-integration \
        install ps prod prod-down dev-dashboard release
 
+
 help:              ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
@@ -99,6 +100,7 @@ release:           ## Tag a release and push to trigger the release workflow (mu
 	echo "" && \
 	echo "Tag $$version pushed. Release workflow started." && \
 	echo "Watch the build at: https://github.com/pykul/ai-ranger/actions"
+
 
 clean:             ## Clean all build artifacts
 	$(MAKE) -C agent clean

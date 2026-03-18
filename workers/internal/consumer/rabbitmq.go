@@ -28,6 +28,7 @@ func Start(url string, chWriter *writer.ClickHouseWriter, pgWriter *writer.Postg
 			return err
 		}
 
+
 		msgs, err := setupChannel(conn)
 		if err != nil {
 			_ = conn.Close()
@@ -63,6 +64,7 @@ func Start(url string, chWriter *writer.ClickHouseWriter, pgWriter *writer.Postg
 		// Brief pause before reconnecting to avoid tight loops.
 		time.Sleep(time.Duration(connectRetryIntervalSecs) * time.Second)
 	}
+
 }
 
 // dialWithRetry attempts to connect to RabbitMQ up to MaxRetries times.

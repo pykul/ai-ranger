@@ -80,7 +80,7 @@ services:
     # Credentials are controlled entirely by RABBITMQ_DEFAULT_USER and
     # RABBITMQ_DEFAULT_PASS in .env. The entrypoint script runs envsubst
     # on definitions.json.template to produce definitions.json at startup.
-    entrypoint: ["/docker-entrypoint-custom.sh"]
+    entrypoint: ["sh", "/docker-entrypoint-custom.sh"]
     command: ["rabbitmq-server"]
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}

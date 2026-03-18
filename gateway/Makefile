@@ -23,7 +23,7 @@ test:              ## Run tests
 
 lint:              ## Lint with ruff and type-check with mypy
 	ruff check .
-	mypy .
+	mypy . --ignore-missing-imports
 
 clean:             ## Remove cached files
 	find . -type d -name __pycache__ -exec rm -rf {} +

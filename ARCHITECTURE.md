@@ -1993,28 +1993,3 @@ All backend services are designed to be k8s-compatible without modification:
   gateway bundles providers.toml in the image; it is not required as a volume mount.
 
 See `k8s/README.md` for complete deployment guidance.
-
----
-
-## Starting Point for Claude Code Sessions
-
-**Always begin a new session with:**
-
-> "Read ARCHITECTURE.md. We are working on [specific phase/component].
-> Do not implement anything outside the scope of what I describe.
-> If something is marked Phase 5 or MITM, do not touch it.
-> Every component needs a Makefile - create it before writing any other code."
-
-**Phase 0 session prompt:**
-> "Read ARCHITECTURE.md. Implement Phase 0 only: a Rust binary called `ai-ranger`
-> that captures TLS ClientHello packets on port 443, extracts the SNI hostname,
-> matches it against a hardcoded list of 5 AI provider hostnames, and prints
-> matching connections to stdout as JSON. Start by creating the root Makefile and
-> agent/Makefile. No config file, no enrollment, no upload, no MITM code.
-> Just capture, classify, print."
-
-**When asked to start Phase 5:**
-> "Read ARCHITECTURE.md, paying close attention to the Phase 5 MITM Mode section
-> and the Agent Capture Modes section. We are now starting Phase 5. Before writing
-> any code, outline your implementation plan for the MITM capture pipeline and the
-> cert installation flow. We will review and approve the plan before any code is written."

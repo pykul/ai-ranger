@@ -56,17 +56,17 @@ The agent was initially planned in Rust, then reconsidered in favor of Go for co
 contribution reasons - Go has a lower barrier to entry and the project is open source.
 The final decision returned to Rust for the following reasons: the agent runs as a
 privileged process with root/admin access, and Rust's memory safety guarantees are
-genuinely valuable in that context. The author also wanted to learn Rust, and building
-a real project is the best way to do that.
+genuinely valuable in that context. An additional factor was learning Rust through
+a real project.
 
 The Go argument was not wrong - it would have produced more contributors. The Rust
 decision was made with eyes open to that tradeoff.
 
 ### Backend: Python (FastAPI) + Go, not Rust throughout
 
-The backend follows a pattern from SentinelOne where the author previously worked: a
-thin Python gateway handles agent-facing ingest (auth, deserialize, enqueue) and Go
-workers handle everything else (async processing, storage writes, dashboard API).
+The backend uses a thin-gateway pattern: a lightweight Python service handles
+agent-facing ingest (auth, deserialize, enqueue) and Go workers handle everything
+else (async processing, storage writes, dashboard API).
 
 Python was chosen for the gateway because it is battle-tested for this thin-gateway
 pattern and familiar to ops teams. FastAPI was chosen over Flask for its native async
@@ -663,7 +663,7 @@ for all environment variable loading. Alternatives considered:
   duplicated across files.
 - **python-decouple or environs**: rejected because pydantic-settings integrates
   naturally with FastAPI's dependency injection, provides type coercion and validation
-  at startup, and the team already depends on pydantic for request models.
+  at startup, and the gateway already depends on pydantic for request models.
 - **A plain dataclass**: rejected because it would require manual validation code
   that pydantic-settings provides for free.
 
@@ -849,7 +849,7 @@ alternatives considered:
   TLS on each service, CORS between dashboard and API).
 - **Traefik or Caddy**: more features but heavier dependencies. nginx is
   universally understood, available as a 5MB Alpine image, and handles the
-  three routing rules we need without any dynamic configuration.
+  three routing rules required without any dynamic configuration.
 - **API gateway (Kong, Ambassador)**: over-engineered for an internal tool
   with three routes.
 

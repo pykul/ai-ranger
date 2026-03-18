@@ -18,12 +18,6 @@ import (
 // connectRetryIntervalSecs is the initial delay between RabbitMQ connection attempts.
 const connectRetryIntervalSecs = 3
 
-// maxReconnectBackoffSecs caps the exponential backoff for reconnection attempts.
-const maxReconnectBackoffSecs = 60
-
-// reconnectBackoffMultiplier is the multiplier for exponential backoff.
-const reconnectBackoffMultiplier = 2
-
 // Start connects to RabbitMQ and consumes from the ingest queue.
 // Automatically reconnects if the connection drops after initial connect.
 // Blocks indefinitely until an unrecoverable error occurs.
@@ -36,7 +30,7 @@ func Start(url string, chWriter *writer.ClickHouseWriter, pgWriter *writer.Postg
 
 		msgs, err := setupChannel(conn)
 		if err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return err
 		}
 
@@ -59,11 +53,11 @@ func Start(url string, chWriter *writer.ClickHouseWriter, pgWriter *writer.Postg
 			} else {
 				log.Printf("[ingest] RabbitMQ connection closed, reconnecting...")
 			}
-			conn.Close()
+			_ = conn.Close()
 		case <-done:
-			// msgs channel was closed without a connection error — reconnect.
+			// msgs channel was closed without a connection error - reconnect.
 			log.Printf("[ingest] Consumer channel closed, reconnecting...")
-			conn.Close()
+			_ = conn.Close()
 		}
 
 		// Brief pause before reconnecting to avoid tight loops.

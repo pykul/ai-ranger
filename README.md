@@ -131,8 +131,10 @@ cp .env.example .env
 make dev
 ```
 
-The command builds all images and waits for every service to report healthy before
-returning. When it finishes, all 8 services are running.
+The first run downloads Docker images and builds all services, which takes a few
+minutes. Subsequent runs are faster. The command waits for every service to report
+healthy before returning. When it finishes you should see `All services healthy`
+and all 8 services are running.
 
 If you see stale data from a previous run, use `make dev-reset` instead. It wipes
 all database volumes and starts fresh.
@@ -182,15 +184,18 @@ curl -s https://api.openai.com > /dev/null
 curl -s https://api.anthropic.com > /dev/null
 ```
 
-Check that events flowed through the pipeline:
+Wait a few seconds for events to flow through RabbitMQ into ClickHouse, then
+check that they arrived:
 
 ```bash
 # See your enrolled agent
 curl -s http://localhost:8000/api/v1/dashboard/fleet | python3 -m json.tool
 
-# See detected events (once ClickHouse has ingested)
+# See detected events
 curl -s http://localhost:8000/api/v1/dashboard/overview | python3 -m json.tool
 ```
+
+You should see `total_connections` greater than 0 in the overview response.
 
 ---
 
@@ -208,7 +213,7 @@ ai-ranger.exe
 ```
 
 ```json
-{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","os_type":"windows","timestamp_ms":1773564763684,"provider":"openai","provider_host":"api.openai.com","process_name":"curl.exe","process_pid":22276,"src_ip":"192.168.1.232","detection_method":"SNI","capture_mode":"DNS_SNI"}
+{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","os_type":"windows","connection_id":"a1b2c3d4e5f6","timestamp_ms":1773564763684,"provider":"openai","provider_host":"api.openai.com","process_name":"curl.exe","process_pid":22276,"src_ip":"192.168.1.232","detection_method":"SNI","capture_mode":"DNS_SNI"}
 ```
 
 Fields like `agent_id` are populated after enrollment. In standalone mode they are empty.

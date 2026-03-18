@@ -76,7 +76,7 @@ func (s *ClickHouseStore) GetProviders(ctx context.Context, days int) ([]Provide
 	if err != nil {
 		return nil, fmt.Errorf("query providers: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []ProviderBreakdown
 	for rows.Next() {
@@ -125,7 +125,7 @@ func (s *ClickHouseStore) GetUsers(ctx context.Context, days int, provider strin
 	if err != nil {
 		return nil, fmt.Errorf("query users: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []UserActivity
 	for rows.Next() {
@@ -160,7 +160,7 @@ func (s *ClickHouseStore) GetTrafficTimeseries(ctx context.Context, days int) ([
 	if err != nil {
 		return nil, fmt.Errorf("query traffic: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []TrafficPoint
 	for rows.Next() {
@@ -242,7 +242,7 @@ func (s *ClickHouseStore) getEventsNoSearch(ctx context.Context, days int, sortC
 	if err != nil {
 		return nil, fmt.Errorf("query events: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	events := s.scanEventRows(rows)
 	return &EventsResult{Events: events, Total: total, Page: (offset / limit) + 1, Limit: limit}, rows.Err()
@@ -279,7 +279,7 @@ func (s *ClickHouseStore) getEventsWithSearch(ctx context.Context, q string, day
 	if err != nil {
 		return nil, fmt.Errorf("query events: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	events := s.scanEventRows(rows)
 	return &EventsResult{Events: events, Total: total, Page: (offset / limit) + 1, Limit: limit}, rows.Err()

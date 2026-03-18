@@ -60,7 +60,7 @@ fn default_mode() -> String {
 /// Output sink configuration from `[[outputs]]` entries in config.toml.
 ///
 /// Each variant corresponds to a sink type. Events fan out to all configured outputs.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum OutputConfig {
     #[serde(rename = "stdout")]

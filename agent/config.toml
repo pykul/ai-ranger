@@ -44,11 +44,12 @@ type = "stdout"
 
 # POST events to the AI Ranger backend gateway. Activates the local SQLite
 # buffer - events are stored locally and uploaded every second.
-# Requires enrollment (ai-ranger --enroll --token=... --backend=...).
+# When enrolled with --backend, this output is added automatically - you do
+# NOT need to uncomment this. Only add an explicit entry to override the URL
+# or to send to a second backend.
 # [[outputs]]
 # type = "http"
-# url = "https://your-instance.com/v1/ingest"
-# token = "tok_abc123"
+# url = "https://your-instance.com"
 
 # POST JSON arrays to any HTTP endpoint. Useful for integrating with Datadog,
 # Splunk, or custom webhooks without running the AI Ranger backend.

@@ -1,8 +1,10 @@
 use crate::event::AiConnectionEvent;
+use crate::identity::config;
 use crate::output::sink::EventSink;
 use crate::proto::ranger_v1;
 use async_trait::async_trait;
 use prost::Message;
+use reqwest::StatusCode;
 use tokio::sync::Mutex;
 
 /// Default number of events to buffer before flushing to the HTTP backend.
@@ -79,8 +81,16 @@ impl HttpSink {
             .body(body)
             .send()
             .await?;
-        if !resp.status().is_success() {
-            return Err(format!("HTTP sink: server returned {}", resp.status()).into());
+
+        let status = resp.status();
+        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+            // The backend no longer recognises this agent (DB wiped, agent revoked, etc.).
+            // Delete the local config so the next run will require re-enrollment.
+            invalidate_enrollment(status);
+        }
+
+        if !status.is_success() {
+            return Err(format!("HTTP sink: server returned {}", status).into());
         }
         Ok(())
     }
@@ -111,4 +121,27 @@ impl EventSink for HttpSink {
         };
         self.send_batch(&events).await
     }
+}
+
+/// Delete the local enrollment config and exit.
+///
+/// Called when the backend returns 401 (unknown agent) or 403 (revoked).
+/// This forces the next run to re-enroll with a fresh token instead of
+/// retrying forever with a stale agent_id.
+fn invalidate_enrollment(status: StatusCode) -> ! {
+    eprintln!(
+        "[ai-ranger] Backend returned {status} — this agent is no longer recognised."
+    );
+    if let Some(dir) = config::config_dir() {
+        let path = dir.join("config.json");
+        if path.exists() {
+            if let Err(e) = std::fs::remove_file(&path) {
+                eprintln!("[ai-ranger] Could not remove config at {}: {e}", path.display());
+            } else {
+                eprintln!("[ai-ranger] Cleared enrollment config at {}", path.display());
+            }
+        }
+    }
+    eprintln!("[ai-ranger] Re-run with --token and --backend to re-enroll.");
+    std::process::exit(1);
 }

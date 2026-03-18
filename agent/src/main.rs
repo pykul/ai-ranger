@@ -114,18 +114,36 @@ async fn async_main(cli: Cli, pre_enrolled: Option<identity::config::AgentConfig
         os_type: std::env::consts::OS.to_string(),
     };
 
+    // If the agent is enrolled with a backend_url but config.toml has no HTTP output,
+    // inject one automatically so events are sent to the backend without requiring
+    // a manual [[outputs]] entry.
+    let mut outputs = app_config.outputs.clone();
+    let has_explicit_http = outputs.iter().any(|o| matches!(o, OutputConfig::Http { .. }));
+    if !has_explicit_http {
+        if let Some(ref cfg) = agent_config {
+            if !cfg.backend_url.is_empty() {
+                eprintln!(
+                    "[ai-ranger] Auto-adding HTTP output for enrolled backend: {}",
+                    cfg.backend_url
+                );
+                outputs.push(OutputConfig::Http {
+                    url: cfg.backend_url.clone(),
+                });
+            }
+        }
+    }
+
     // Build sinks and optional SQLite buffer
     let http_batch = app_config.agent.http_batch_size.map(|v| v as usize);
     let webhook_batch = app_config.agent.webhook_batch_size.map(|v| v as usize);
-    let sinks = output::build_sinks(&app_config.outputs, &agent_id, http_batch, webhook_batch);
+    let sinks = output::build_sinks(&outputs, &agent_id, http_batch, webhook_batch);
     let sink: Arc<dyn EventSink> = if sinks.len() == 1 {
         sinks.into_iter().next().unwrap()
     } else {
         Arc::new(output::fanout::FanoutSink::new(sinks))
     };
 
-    let has_http = app_config
-        .outputs
+    let has_http = outputs
         .iter()
         .any(|o| matches!(o, OutputConfig::Http { .. }));
     let event_buffer = buffer::store::open_if_needed(has_http, app_config.agent.max_buffer_events);

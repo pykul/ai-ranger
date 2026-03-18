@@ -220,7 +220,60 @@ A default `config.toml` with all available options documented ships at `agent/co
 
 ## Production deployment
 
-### Pre-built binaries
+### Backend setup
+
+**Prerequisites:**
+
+- A Linux server with Docker and Docker Compose v2 installed
+- A domain name with a DNS A record pointing to the server
+- Ports 80 and 443 open in the server's firewall
+- TLS certificates (Let's Encrypt recommended)
+
+**1. Generate TLS certificates:**
+
+```bash
+sudo apt install certbot
+sudo certbot certonly --standalone -d ranger.example.com
+sudo mkdir -p /etc/letsencrypt/live/default
+sudo ln -sf /etc/letsencrypt/live/ranger.example.com/fullchain.pem /etc/letsencrypt/live/default/fullchain.pem
+sudo ln -sf /etc/letsencrypt/live/ranger.example.com/privkey.pem /etc/letsencrypt/live/default/privkey.pem
+```
+
+**2. Configure environment variables:**
+
+```bash
+git clone https://github.com/pykul/ai-ranger
+cd ai-ranger
+cp .env.example .env
+```
+
+Edit `.env` and set the following production values:
+
+| Variable | Value | Notes |
+|----------|-------|-------|
+| `ENVIRONMENT` | `production` | Enables JWT auth, disables seed data |
+| `DOMAIN` | `ranger.example.com` | Your production domain |
+| `JWT_SECRET` | Output of `openssl rand -hex 32` | Used to sign dashboard login tokens |
+| `ADMIN_EMAIL` | `admin@example.com` | Dashboard login email |
+| `ADMIN_PASSWORD` | A strong password | Plaintext here, hashed in memory at startup |
+| `POSTGRES_PASSWORD` | A strong password | Postgres superuser password |
+| `RABBITMQ_DEFAULT_USER` | `ranger` | Change from default `guest` |
+| `RABBITMQ_DEFAULT_PASS` | A strong password | Change from default `guest` |
+
+**3. Start the production stack:**
+
+```bash
+cd docker
+docker compose --env-file ../.env \
+  -f docker-compose.yml -f docker-compose.prod.yml \
+  up -d --wait
+```
+
+The dashboard is available at `https://ranger.example.com`. Only ports 80
+(redirects to 443) and 443 are exposed. All internal services (Postgres,
+ClickHouse, RabbitMQ, gateway, workers) are not reachable from outside.
+
+### Pre-built agent binaries
 
 Pre-built binaries for Linux, macOS (Intel and Apple Silicon), and Windows are
 attached to every release on the [GitHub Releases page](https://github.com/pykul/ai-ranger/releases).

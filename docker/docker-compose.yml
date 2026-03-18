@@ -77,10 +77,10 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    # User credentials are defined in rabbitmq/definitions.json (loaded by management plugin).
-    # RABBITMQ_DEFAULT_USER/RABBITMQ_DEFAULT_PASS env vars are NOT used here because they
-    # conflict with the definitions import. The RABBITMQ_URL env var on gateway and workers
-    # must match the credentials in definitions.json.
+    # WARNING: User credentials are defined in rabbitmq/definitions.json, NOT
+    # by RABBITMQ_DEFAULT_USER/RABBITMQ_DEFAULT_PASS env vars. When load_definitions
+    # is set in rabbitmq.conf, RabbitMQ skips default user creation from env vars.
+    # To change credentials: update definitions.json AND RABBITMQ_URL in .env.
     ports:
       - "5672:5672"    # AMQP
       - "15672:15672"  # Management UI

@@ -354,7 +354,7 @@ instead of directly to the gateway port. nginx handles TLS termination.
 |---|---|---|
 | `docker/nginx/nginx.dev.conf` | Development | Port 8000, no TLS |
 | `docker/nginx/nginx.prod.conf` | Production | Port 443 with TLS, port 80 redirects to 443 |
-| `dashboard/nginx.conf` | Both | Dashboard container internal config (SPA fallback) |
+| `dashboard/nginx.conf` | Both | Dashboard container internal config: `try_files $uri $uri/ /index.html` so React Router client-side routes work on page refresh (without this, refreshing any route other than `/` returns 404) |
 
 ---
 
@@ -1020,12 +1020,25 @@ ORDER BY (org_id, timestamp, agent_id, provider)
 TTL timestamp + INTERVAL 1 YEAR;
 ```
 
-**Schema changes require volume recreation.** ClickHouse loads `init.sql` only on
-first container start. To apply schema changes, destroy the volume and restart:
+**Schema changes require volume recreation.** ClickHouse loads
+`docker/clickhouse/init.sql` only on first container creation. If you modify
+`init.sql`, existing containers ignore the change because the database already
+exists. To apply schema changes during development:
 
 ```bash
-make dev-reset    # tears down all volumes, restarts with fresh schemas
+make dev-reset    # tears down ALL volumes (ClickHouse + Postgres), restarts fresh
 ```
+
+**What is lost:** All ClickHouse event data is deleted. Postgres identity data
+(organizations, agents, tokens) is also deleted because `dev-reset` removes all
+Docker volumes. Alembic re-runs migrations and re-seeds the dev token on restart.
+
+In production, schema changes must be applied manually:
+```sql
+ALTER TABLE ai_events ADD COLUMN new_column String;
+```
+
+The `init.sql` file is the source of truth for the ClickHouse schema.
 
 ### RabbitMQ - event queue
 
@@ -1039,7 +1052,19 @@ The gateway publishes raw protobuf bytes to `ranger.events`.
 Go ingest workers consume from `ranger.ingest` in a goroutine pool.
 Failed messages after retries go to `ranger.dlq` for inspection.
 
-Pre-configured via `docker/rabbitmq/definitions.json` so no manual setup is needed.
+Pre-configured via `docker/rabbitmq/definitions.json` so no manual setup is
+needed. The definitions file controls **both** user credentials and topology
+(exchanges, queues, bindings).
+
+**RabbitMQ credential warning:** When `management.load_definitions` is set in
+`rabbitmq.conf`, RabbitMQ skips creating the default user from
+`RABBITMQ_DEFAULT_USER`/`RABBITMQ_DEFAULT_PASS` environment variables. All
+user credentials come from `definitions.json`. The `RABBITMQ_DEFAULT_USER` and
+`RABBITMQ_DEFAULT_PASS` variables in `.env` are used only to construct the
+`RABBITMQ_URL` that the gateway and workers use to connect. To change
+credentials, you must update **both** `definitions.json` (broker side) and
+`.env` (client side), then recreate the RabbitMQ volume with `make dev-reset`.
+
 The management UI at `localhost:15672` lets contributors inspect queue depth and
 dead letters without any extra tooling.
 
@@ -1239,30 +1264,34 @@ clean:             ## Remove build artifacts
 ### `docker/Makefile`
 
 ```makefile
-COMPOSE         := docker compose -f docker-compose.yml
-COMPOSE_DEV     := docker compose -f docker-compose.yml -f docker-compose.dev.yml
+COMPOSE         := docker compose --env-file ../.env -f docker-compose.yml
+COMPOSE_DEV     := docker compose --env-file ../.env -f docker-compose.yml -f docker-compose.dev.yml
 
-.PHONY: up dev down logs reset ps build
+.PHONY: up dev dev-reset down logs reset ps build
 
-up:                ## Start full stack (production-like)
+up:                ## Start base stack without dev overlays (no hot reload)
 	$(COMPOSE) up -d
 
-dev:               ## Start full stack with dev overrides (source mounts, hot reload)
-	$(COMPOSE_DEV) up
+dev:               ## Build images, start dev stack, wait for all 8 services healthy
+	$(COMPOSE_DEV) up -d --build --wait
 
-down:              ## Stop all services
+dev-reset:         ## Wipe ALL volumes (data lost!), rebuild, wait for healthy
+	$(COMPOSE) down -v
+	$(COMPOSE_DEV) up -d --build --wait
+
+down:              ## Stop all Docker Compose services
 	$(COMPOSE) down
 
-logs:              ## Tail logs from all services
+logs:              ## Tail logs from all Docker Compose services
 	$(COMPOSE) logs -f
 
-ps:                ## Show status of all services
+ps:                ## Show running status of all services
 	$(COMPOSE) ps
 
-build:             ## Rebuild all Docker images
+build:             ## Rebuild all Docker images without starting
 	$(COMPOSE) build
 
-reset:             ## Tear down everything including volumes (destructive)
+reset:             ## Wipe ALL volumes and restart base stack (destructive)
 	$(COMPOSE) down -v
 	$(COMPOSE) up -d
 ```
@@ -1385,10 +1414,145 @@ Services started (8 total):
 | `api-server` | Go Query API for dashboard data and admin operations |
 | `dashboard` | React SPA served by nginx |
 
-Configuration is split across three compose files:
-- `docker-compose.yml` - base (all services)
-- `docker-compose.dev.yml` - dev overrides (source mounts, hot reload)
-- `docker-compose.prod.yml` - production overrides (TLS, no direct port exposure)
+Configuration is split across three compose files using Docker Compose's
+**overlay pattern**. Each file after `-f` merges into the previous one: keys
+are deep-merged and arrays (like `ports`) are replaced entirely. The base file
+is always included first; an overlay file adds or overrides specific keys.
+
+| File | Purpose | Used by |
+|---|---|---|
+| `docker-compose.yml` | Base: defines all 8 services, health checks, volumes, all ports exposed | `make up`, integration tests |
+| `docker-compose.dev.yml` | Dev overlay: source mounts, hot reload (uvicorn `--reload`, CompileDaemon) | `make dev`, `make dev-reset` |
+| `docker-compose.prod.yml` | Prod overlay: TLS via certbot, removes all direct port exposure, mounts `nginx.prod.conf` | Production deployments |
+
+Commands for each environment:
+
+```bash
+# Development (hot reload, all ports open for debugging)
+make dev
+# Equivalent to: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build --wait
+
+# Production (TLS, only ports 80/443 exposed)
+docker compose --env-file ../.env \
+  -f docker-compose.yml -f docker-compose.prod.yml \
+  up -d --wait
+```
+
+The base file is self-contained and runs on its own (used by `make up` and
+integration tests). The dev overlay adds source mounts so code changes on the
+host are reflected without rebuilding containers. The prod overlay locks down
+the network surface and enables TLS.
+
+### nginx configuration swap
+
+The base compose file mounts the development nginx config:
+
+```yaml
+# docker-compose.yml
+nginx:
+  volumes:
+    - ./nginx/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+  ports:
+    - "8000:8000"
+```
+
+The production overlay replaces it with the TLS-enabled config and changes the
+exposed ports:
+
+```yaml
+# docker-compose.prod.yml
+nginx:
+  volumes:
+    - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+    - /etc/letsencrypt:/etc/letsencrypt:ro
+  ports:
+    - "80:80"
+    - "443:443"
+```
+
+**`nginx.dev.conf`** listens on port 8000 with no TLS. All three upstreams
+(dashboard, API, gateway) are proxied over plain HTTP.
+
+**`nginx.prod.conf`** listens on port 443 with TLS (certificates from
+`/etc/letsencrypt/live/default/`). Port 80 redirects all traffic to HTTPS.
+The same three upstreams are proxied, with `X-Forwarded-For` and
+`X-Forwarded-Proto` headers added for downstream services.
+
+This swap is the mechanism that enables TLS in production. If you are setting
+up a production instance, you must have valid TLS certificates at the expected
+path before starting the stack.
+
+### Direct port access (development only)
+
+In development, services are accessible both via nginx (port 8000) and
+directly on their own ports. Direct ports are a developer convenience for
+debugging and accessing Swagger UIs. They are not the intended access pattern
+for end users or agents.
+
+| Service | Direct port (dev only) | Via nginx (all environments) |
+|---|---|---|
+| Dashboard | N/A (only via nginx) | `http://localhost:8000/` |
+| API Server | `http://localhost:8081/docs` | `http://localhost:8000/api/docs` |
+| Gateway | `http://localhost:8080/docs` | `http://localhost:8000/ingest/docs` |
+| RabbitMQ Management | `http://localhost:15672` | N/A (not proxied) |
+
+In production, only nginx ports 80 and 443 are exposed. All direct ports are
+removed by the prod overlay using `ports: !override []`.
+
+### Production deployment
+
+**Prerequisites:**
+
+- A server with Docker and Docker Compose installed
+- A domain name pointing to the server (DNS A record)
+- Ports 80 and 443 open in the firewall
+- TLS certificates from Let's Encrypt (or any CA) at `/etc/letsencrypt/live/default/`
+
+**Generating TLS certificates with certbot:**
+
+```bash
+# Install certbot
+sudo apt install certbot
+
+# Generate certificates (replace with your domain)
+sudo certbot certonly --standalone -d ranger.example.com
+
+# Symlink to the path nginx expects
+sudo mkdir -p /etc/letsencrypt/live/default
+sudo ln -sf /etc/letsencrypt/live/ranger.example.com/fullchain.pem /etc/letsencrypt/live/default/fullchain.pem
+sudo ln -sf /etc/letsencrypt/live/ranger.example.com/privkey.pem /etc/letsencrypt/live/default/privkey.pem
+```
+
+**Configure environment:**
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set the production values:
+
+```bash
+ENVIRONMENT=production
+DOMAIN=ranger.example.com
+JWT_SECRET=<output of: openssl rand -hex 32>
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=<a strong password>
+POSTGRES_PASSWORD=<a strong password>
+RABBITMQ_DEFAULT_USER=ranger
+RABBITMQ_DEFAULT_PASS=<a strong password>
+```
+
+**Start the production stack:**
+
+```bash
+cd docker
+docker compose --env-file ../.env \
+  -f docker-compose.yml -f docker-compose.prod.yml \
+  up -d --wait
+```
+
+The dashboard is now available at `https://ranger.example.com`. Agents enroll
+with `--backend=https://ranger.example.com/ingest`.
 
 ---
 
@@ -1688,8 +1852,8 @@ via `env_file` and `${VAR}` interpolation. No credentials are hardcoded in the c
 | `POSTGRES_PORT` | Postgres port (used in docker-compose.yml to construct connection URLs) |
 | `CLICKHOUSE_HOST` | ClickHouse hostname (used in docker-compose.yml to construct CLICKHOUSE_ADDR) |
 | `CLICKHOUSE_PORT` | ClickHouse native protocol port (used in docker-compose.yml to construct CLICKHOUSE_ADDR) |
-| `RABBITMQ_DEFAULT_USER` | RabbitMQ default user (read natively by the image) |
-| `RABBITMQ_DEFAULT_PASS` | RabbitMQ default password |
+| `RABBITMQ_DEFAULT_USER` | Used only to construct `RABBITMQ_URL`. Actual broker credentials are in `definitions.json` and must match |
+| `RABBITMQ_DEFAULT_PASS` | Used only to construct `RABBITMQ_URL`. Actual broker credentials are in `definitions.json` and must match |
 
 ---
 

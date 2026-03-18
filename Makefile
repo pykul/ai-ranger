@@ -1,4 +1,4 @@
-.PHONY: all build test lint clean proto dev down logs help test-integration
+.PHONY: all build test lint clean proto dev dev-reset down logs help test-integration
 
 help:              ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -23,16 +23,19 @@ lint:              ## Lint all components
 	$(MAKE) -C workers lint
 	$(MAKE) -C dashboard lint
 
-dev:               ## Start full local dev environment
+dev:               ## Start dev environment (builds, waits for all 8 services healthy, then returns)
 	$(MAKE) -C docker dev
 
-down:              ## Stop local dev environment
+dev-reset:         ## Wipe all volumes (data lost!) and restart dev (use after schema changes)
+	$(MAKE) -C docker dev-reset
+
+down:              ## Stop all Docker Compose services
 	$(MAKE) -C docker down
 
-logs:              ## Tail logs from all services
+logs:              ## Tail logs from all Docker Compose services
 	$(MAKE) -C docker logs
 
-test-integration:  ## Build agent, start backend, run all integration tests (requires sudo)
+test-integration:  ## Build agent, start Docker stack, run 23 integration tests (requires sudo)
 	@bash tests/run-integration.sh
 
 clean:             ## Clean all build artifacts

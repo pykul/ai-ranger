@@ -136,11 +136,22 @@ interface TokenRow {
   CreatedAt: string;
 }
 
+interface TokenCreateResult {
+  id: string;
+  token: string;
+  org_id: string;
+  max_uses: number;
+}
+
 function TokensTab() {
   const queryClient = useQueryClient();
   const tokens = useQuery({
     queryKey: ["tokens"],
     queryFn: () => api<TokenRow[]>("/v1/admin/tokens"),
+  });
+  const fleet = useQuery({
+    queryKey: ["fleet"],
+    queryFn: () => api<FleetAgent[]>("/v1/dashboard/fleet"),
   });
   const deleteToken = useMutation({
     mutationFn: (id: string) =>
@@ -148,8 +159,168 @@ function TokensTab() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tokens"] }),
   });
 
+  const [showForm, setShowForm] = useState(false);
+  const [label, setLabel] = useState("");
+  const [maxUses, setMaxUses] = useState("10");
+  const [formError, setFormError] = useState("");
+  const [createdToken, setCreatedToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Resolve org_id from existing tokens or fleet agents.
+  const orgId =
+    tokens.data?.[0]?.OrgID ?? fleet.data?.[0]?.OrgID ?? null;
+
+  const createToken = useMutation({
+    mutationFn: (body: { org_id: string; label?: string; max_uses: number }) =>
+      api<TokenCreateResult>("/v1/admin/tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["tokens"] });
+      setCreatedToken(data.token);
+      setLabel("");
+      setMaxUses("10");
+      setFormError("");
+    },
+    onError: (err: Error) => {
+      setFormError(err.message || "Failed to create token");
+    },
+  });
+
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError("");
+
+    if (!orgId) {
+      setFormError("No organization found. Enroll at least one agent first.");
+      return;
+    }
+
+    const uses = parseInt(maxUses, 10);
+    if (isNaN(uses) || uses < 1) {
+      setFormError("Max uses must be a number greater than 0.");
+      return;
+    }
+
+    createToken.mutate({
+      org_id: orgId,
+      label: label.trim() || undefined,
+      max_uses: uses,
+    });
+  }
+
+  function handleCopy() {
+    if (createdToken) {
+      navigator.clipboard.writeText(createdToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
+  function handleDismissToken() {
+    setCreatedToken(null);
+    setShowForm(false);
+    setCopied(false);
+  }
+
   return (
     <div>
+      {/* Created token banner -- shown once, cannot be retrieved later */}
+      {createdToken && (
+        <div className="mb-4 rounded-lg border border-green-300 bg-green-50 p-4">
+          <p className="text-sm font-medium text-green-800 mb-2">
+            Token created. Copy it now -- it will not be shown again.
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 rounded bg-white px-3 py-2 text-sm font-mono border border-green-200 select-all break-all">
+              {createdToken}
+            </code>
+            <button
+              onClick={handleCopy}
+              className="shrink-0 rounded bg-green-700 px-3 py-2 text-sm text-white hover:bg-green-800"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <button
+            onClick={handleDismissToken}
+            className="mt-2 text-xs text-green-700 hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Create token button / form */}
+      {!createdToken && (
+        <div className="mb-4">
+          {!showForm ? (
+            <button
+              onClick={() => setShowForm(true)}
+              className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Create Token
+            </button>
+          ) : (
+            <form
+              onSubmit={handleCreate}
+              className="rounded-lg border border-border bg-card p-4 space-y-3"
+            >
+              <div>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">
+                  Label (optional)
+                </label>
+                <input
+                  type="text"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  maxLength={100}
+                  placeholder="e.g. Engineering team"
+                  className="w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">
+                  Max uses
+                </label>
+                <input
+                  type="number"
+                  value={maxUses}
+                  onChange={(e) => setMaxUses(e.target.value)}
+                  min={1}
+                  max={1000000}
+                  className="w-32 rounded border border-border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              {formError && (
+                <p className="text-sm text-destructive">{formError}</p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={createToken.isPending}
+                  className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {createToken.isPending ? "Creating..." : "Create"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForm(false);
+                    setFormError("");
+                  }}
+                  className="rounded border border-border px-4 py-2 text-sm hover:bg-muted"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <table className="w-full text-sm">
           <thead>

@@ -129,16 +129,20 @@ impl EventSink for HttpSink {
 /// This forces the next run to re-enroll with a fresh token instead of
 /// retrying forever with a stale agent_id.
 fn invalidate_enrollment(status: StatusCode) -> ! {
-    eprintln!(
-        "[ai-ranger] Backend returned {status} — this agent is no longer recognised."
-    );
+    eprintln!("[ai-ranger] Backend returned {status} — this agent is no longer recognised.");
     if let Some(dir) = config::config_dir() {
         let path = dir.join("config.json");
         if path.exists() {
             if let Err(e) = std::fs::remove_file(&path) {
-                eprintln!("[ai-ranger] Could not remove config at {}: {e}", path.display());
+                eprintln!(
+                    "[ai-ranger] Could not remove config at {}: {e}",
+                    path.display()
+                );
             } else {
-                eprintln!("[ai-ranger] Cleared enrollment config at {}", path.display());
+                eprintln!(
+                    "[ai-ranger] Cleared enrollment config at {}",
+                    path.display()
+                );
             }
         }
     }

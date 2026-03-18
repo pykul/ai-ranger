@@ -118,7 +118,9 @@ async fn async_main(cli: Cli, pre_enrolled: Option<identity::config::AgentConfig
     // inject one automatically so events are sent to the backend without requiring
     // a manual [[outputs]] entry.
     let mut outputs = app_config.outputs.clone();
-    let has_explicit_http = outputs.iter().any(|o| matches!(o, OutputConfig::Http { .. }));
+    let has_explicit_http = outputs
+        .iter()
+        .any(|o| matches!(o, OutputConfig::Http { .. }));
     if !has_explicit_http {
         if let Some(ref cfg) = agent_config {
             if !cfg.backend_url.is_empty() {

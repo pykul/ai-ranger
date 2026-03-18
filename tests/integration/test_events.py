@@ -1,7 +1,19 @@
 """Events endpoint tests. Verifies search, pagination, and sorting."""
 
+from datetime import datetime, timezone
+
 from helpers.proto import encode_batch, make_test_batch, make_test_event
 from helpers.wait import wait_for_clickhouse_event, wait_for_condition
+
+
+def _parse_ts(ts: str) -> datetime:
+    """Parse an ISO 8601 timestamp with or without fractional seconds."""
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            return datetime.strptime(ts, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    raise ValueError(f"Unable to parse timestamp: {ts}")
 
 
 def _ingest_test_events(gateway_api, agent_id):
@@ -122,8 +134,8 @@ def test_events_sort_ascending(
     resp = api_server.events(days=7, sort="timestamp", order="asc", limit=25)
     data = resp.json()
     if len(data["events"]) >= 2:
-        timestamps = [e["timestamp"] for e in data["events"]]
-        assert timestamps == sorted(timestamps), "Events not in ascending order"
+        parsed = [_parse_ts(e["timestamp"]) for e in data["events"]]
+        assert parsed == sorted(parsed), "Events not in ascending order"
 
 
 def test_events_search_total_reflects_filtered_count(

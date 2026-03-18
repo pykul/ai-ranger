@@ -115,6 +115,10 @@ docs_url = "https://platform.stability.ai/docs"
 [[providers]]
 name = "ollama"
 display_name = "Ollama (Local)"
-hostnames = ["localhost"]
+# Ollama detection deferred: requires port-based matching (port 11434) which
+# is not yet implemented. "localhost" was removed because it caused false
+# positives — any localhost connection (e.g. agent → gateway ingest) was
+# misclassified as Ollama. Re-add hostnames once port matching lands.
+hostnames = []
 ports = [11434]
 tls = false

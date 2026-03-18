@@ -866,3 +866,60 @@ complete component system (buttons, cards, tables, inputs, sidebar) and a
 charts module built on Recharts, all native to Tailwind v4. Using one
 ecosystem (shadcn) instead of two (shadcn + Tremor) reduces dependency
 conflicts and maintenance surface.
+
+### Two-page KISS dashboard design
+
+The dashboard has two primary pages: Dashboard (analytics) and Events (raw
+search). Fleet management and token management are in an Admin section accessible
+from a secondary link at the bottom of the sidebar.
+
+The original plan had six separate pages: Overview, Fleet, Providers, Users,
+Events, and Tokens. This was reduced to two because:
+
+- **The primary user opens the dashboard, understands the picture in thirty
+  seconds, and closes it.** Six pages with distinct navigation creates a
+  "hunt for the right page" experience. A single analytics Dashboard with
+  stat cards, a timeseries chart, and ranked lists gives the full picture
+  at a glance.
+- **Provider and user breakdowns are not separate pages.** They are ranked
+  lists on the Dashboard that respond to time range and provider filter
+  selections. Clicking a provider in the chart legend filters both lists.
+  This "deep dive" interaction replaces three separate pages.
+- **Events is the power-user view.** Raw event search with full-text search
+  across all fields, sortable columns, pagination, and expandable row detail.
+  This serves the "show me exactly what happened" use case.
+- **Fleet and token management are operational utilities, not analytics.**
+  They are used during setup and troubleshooting, not daily. Moving them to
+  Admin keeps the primary navigation minimal and focused.
+
+### src_ip added to ClickHouse schema in Phase 3
+
+The `src_ip` column was present in the protobuf `AiConnectionEvent` schema and
+written by the agent, but was missing from the ClickHouse `ai_events` table
+created in Phase 2. The Go ingest writer did not include it in the INSERT
+statement, and the column did not exist in `docker/clickhouse/init.sql`.
+
+This was discovered when building the Events page, which needs to display the
+source IP in the expanded row detail and support search across it. The column
+was added to `init.sql`, the writer, the events query, and the dashboard.
+
+ClickHouse does not use Alembic or any migration framework. The schema is loaded
+from `init.sql` on first container start only. Applying schema changes requires
+destroying the ClickHouse volume and recreating it: `make dev-reset`. This is
+acceptable for development. In production, the equivalent is `ALTER TABLE
+ai_events ADD COLUMN src_ip String` run manually or via a deployment script.
+The `init.sql` file is the source of truth for the ClickHouse schema.
+
+### Ollama "localhost" hostname removed to fix false positives
+
+The Ollama provider entry in `providers.toml` had `hostnames = ["localhost"]`.
+Because the classifier matches hostnames without considering port, every
+connection to localhost — including the agent's own HTTP traffic to the gateway
+ingest endpoint — was classified as an Ollama event. This produced a steady
+stream of false positives whenever the agent was running with a backend.
+
+The fix was to clear the hostname list (`hostnames = []`) while keeping the
+Ollama entry and its `ports = [11434]` field. Ollama detection will become
+functional once port-based matching is implemented in the classifier. Until
+then, Ollama connections will not be detected, which is preferable to
+misclassifying all localhost traffic.

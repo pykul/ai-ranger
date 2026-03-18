@@ -20,6 +20,12 @@ use std::sync::Arc;
 /// 1024 provides enough headroom for burst traffic without unbounded memory growth.
 const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
+/// Interval for the background sink flush timer.
+/// Events sitting in the HTTP batch would otherwise wait for the drain loop or
+/// the batch size threshold (10 events). This timer ensures a single event is
+/// visible in the dashboard within 500ms under light load.
+const FLUSH_INTERVAL_MS: u64 = 500;
+
 /// How long a connection_id remains in the dedup cache before expiring.
 /// 5 seconds is generous enough to handle the boundary-crossing scenario where DNS
 /// and SNI land in different 2-second buckets. See DECISIONS.md for full rationale.
@@ -122,7 +128,7 @@ async fn async_main(cli: Cli, pre_enrolled: Option<identity::config::AgentConfig
         .outputs
         .iter()
         .any(|o| matches!(o, OutputConfig::Http { .. }));
-    let event_buffer = buffer::store::open_if_needed(has_http);
+    let event_buffer = buffer::store::open_if_needed(has_http, app_config.agent.max_buffer_events);
 
     // Spawn buffer drain task
     let drain_interval = app_config
@@ -138,6 +144,17 @@ async fn async_main(cli: Cli, pre_enrolled: Option<identity::config::AgentConfig
         let s = Arc::clone(&sink);
         tokio::spawn(buffer::drain::drain_loop(b, s, drain_interval, drain_batch));
     }
+
+    // Flush all sinks every 500ms so events do not sit in batches waiting for
+    // the size threshold. Under light load this is the primary delivery trigger.
+    let sink_flush = Arc::clone(&sink);
+    tokio::spawn(async move {
+        let interval = std::time::Duration::from_millis(FLUSH_INTERVAL_MS);
+        loop {
+            tokio::time::sleep(interval).await;
+            let _ = sink_flush.flush().await;
+        }
+    });
 
     eprintln!("[ai-ranger] AI provider detection agent");
     eprintln!("[ai-ranger] Mode: {}", app_config.agent.mode);

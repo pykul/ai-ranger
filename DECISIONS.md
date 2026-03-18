@@ -56,17 +56,17 @@ The agent was initially planned in Rust, then reconsidered in favor of Go for co
 contribution reasons - Go has a lower barrier to entry and the project is open source.
 The final decision returned to Rust for the following reasons: the agent runs as a
 privileged process with root/admin access, and Rust's memory safety guarantees are
-genuinely valuable in that context. The author also wanted to learn Rust, and building
-a real project is the best way to do that.
+genuinely valuable in that context. An additional factor was learning Rust through
+a real project.
 
 The Go argument was not wrong - it would have produced more contributors. The Rust
 decision was made with eyes open to that tradeoff.
 
 ### Backend: Python (FastAPI) + Go, not Rust throughout
 
-The backend follows a pattern from SentinelOne where the author previously worked: a
-thin Python gateway handles agent-facing ingest (auth, deserialize, enqueue) and Go
-workers handle everything else (async processing, storage writes, dashboard API).
+The backend uses a thin-gateway pattern: a lightweight Python service handles
+agent-facing ingest (auth, deserialize, enqueue) and Go workers handle everything
+else (async processing, storage writes, dashboard API).
 
 Python was chosen for the gateway because it is battle-tested for this thin-gateway
 pattern and familiar to ops teams. FastAPI was chosen over Flask for its native async
@@ -663,7 +663,7 @@ for all environment variable loading. Alternatives considered:
   duplicated across files.
 - **python-decouple or environs**: rejected because pydantic-settings integrates
   naturally with FastAPI's dependency injection, provides type coercion and validation
-  at startup, and the team already depends on pydantic for request models.
+  at startup, and the gateway already depends on pydantic for request models.
 - **A plain dataclass**: rejected because it would require manual validation code
   that pydantic-settings provides for free.
 
@@ -823,10 +823,172 @@ password resets is out of scope for Phase 3. The reasoning:
   emails, password reset flow, and role system for a tool that currently has one
   class of user (admin) is over-engineering.
 - **Environment variables are the right primitive.** `ADMIN_EMAIL` and
-  `ADMIN_PASSWORD` (bcrypt hash) are set once during deployment. The login
-  endpoint checks them directly. No database query, no user table, no migration.
+  `ADMIN_PASSWORD` (plaintext) are set once during deployment. The password
+  is hashed via bcrypt once at startup and the plaintext is not retained in
+  the config struct. The login endpoint compares against the in-memory hash.
+  No database query, no user table, no migration.
+- **Plaintext password in the environment, not a pre-generated hash.** bcrypt
+  hashing at login time is intentionally expensive and only appropriate for
+  the initial verification. Subsequent requests use JWT validation which is
+  cheap. Requiring admins to pre-hash their password adds unnecessary friction
+  and tooling requirements (htpasswd, bcrypt CLI) with no security benefit
+  since transport is HTTPS and the environment variable is already a secret.
 - **Reversible.** If real demand emerges for multi-user access (e.g. read-only
   viewers, per-team scoping), a users table can be added in a future phase. The
   JWT infrastructure built now carries forward unchanged: the only change is
   where the credential check happens (database lookup instead of env var
   comparison).
+
+### nginx as single ingress point
+
+All external traffic routes through a single nginx reverse proxy. The
+alternatives considered:
+
+- **Direct port exposure for each service**: simpler in development but
+  creates operational complexity in production (multiple ports to manage,
+  TLS on each service, CORS between dashboard and API).
+- **Traefik or Caddy**: more features but heavier dependencies. nginx is
+  universally understood, available as a 5MB Alpine image, and handles the
+  three routing rules required without any dynamic configuration.
+- **API gateway (Kong, Ambassador)**: over-engineered for an internal tool
+  with three routes.
+
+nginx provides: single TLS termination point, CORS elimination (dashboard and
+API share the same origin), clean URL structure (`/api/` for the query API,
+`/ingest/` for agent traffic), and SPA routing fallback. In development, direct
+ports remain exposed on each service for debugging and integration tests.
+
+### shadcn/ui with shadcn charts over Tremor
+
+Tremor was the original charting library choice but was rejected because it
+requires Tailwind v3 and has not been updated for v4. shadcn/ui provides a
+complete component system (buttons, cards, tables, inputs, sidebar) and a
+charts module built on Recharts, all native to Tailwind v4. Using one
+ecosystem (shadcn) instead of two (shadcn + Tremor) reduces dependency
+conflicts and maintenance surface.
+
+### Two-page KISS dashboard design
+
+The dashboard has two primary pages: Dashboard (analytics) and Events (raw
+search). Fleet management and token management are in an Admin section accessible
+from a secondary link at the bottom of the sidebar.
+
+The original plan had six separate pages: Overview, Fleet, Providers, Users,
+Events, and Tokens. This was reduced to two because:
+
+- **The primary user opens the dashboard, understands the picture in thirty
+  seconds, and closes it.** Six pages with distinct navigation creates a
+  "hunt for the right page" experience. A single analytics Dashboard with
+  stat cards, a timeseries chart, and ranked lists gives the full picture
+  at a glance.
+- **Provider and user breakdowns are not separate pages.** They are ranked
+  lists on the Dashboard that respond to time range and provider filter
+  selections. Clicking a provider in the chart legend filters both lists.
+  This "deep dive" interaction replaces three separate pages.
+- **Events is the power-user view.** Raw event search with full-text search
+  across all fields, sortable columns, pagination, and expandable row detail.
+  This serves the "show me exactly what happened" use case.
+- **Fleet and token management are operational utilities, not analytics.**
+  They are used during setup and troubleshooting, not daily. Moving them to
+  Admin keeps the primary navigation minimal and focused.
+
+### src_ip added to ClickHouse schema in Phase 3
+
+The `src_ip` column was present in the protobuf `AiConnectionEvent` schema and
+written by the agent, but was missing from the ClickHouse `ai_events` table
+created in Phase 2. The Go ingest writer did not include it in the INSERT
+statement, and the column did not exist in `docker/clickhouse/init.sql`.
+
+This was discovered when building the Events page, which needs to display the
+source IP in the expanded row detail and support search across it. The column
+was added to `init.sql`, the writer, the events query, and the dashboard.
+
+ClickHouse does not use Alembic or any migration framework. The schema is loaded
+from `init.sql` on first container start only. Applying schema changes requires
+destroying the ClickHouse volume and recreating it: `make dev-reset`. This is
+acceptable for development. In production, the equivalent is `ALTER TABLE
+ai_events ADD COLUMN src_ip String` run manually or via a deployment script.
+The `init.sql` file is the source of truth for the ClickHouse schema.
+
+### Ollama "localhost" hostname removed to fix false positives
+
+The Ollama provider entry in `providers.toml` had `hostnames = ["localhost"]`.
+Because the classifier matches hostnames without considering port, every
+connection to localhost — including the agent's own HTTP traffic to the gateway
+ingest endpoint — was classified as an Ollama event. This produced a steady
+stream of false positives whenever the agent was running with a backend.
+
+The fix was to clear the hostname list (`hostnames = []`) while keeping the
+Ollama entry and its `ports = [11434]` field. Ollama detection will become
+functional once port-based matching is implemented in the classifier. Until
+then, Ollama connections will not be detected, which is preferable to
+misclassifying all localhost traffic.
+
+---
+
+## Phase 3 Hardening (Pre-Release Audit)
+
+### ClickHouse queries switched from string interpolation to parameterized queries
+
+The ClickHouse store (`workers/internal/store/clickhouse.go`) originally used
+`fmt.Sprintf` with a custom `escapeSingleQuote()` helper to build queries with
+user-supplied search terms and provider filters. This was a SQL injection risk —
+the escape function only handled single quotes and could miss edge cases.
+
+All queries were rewritten to use `clickhouse-go`'s native `?` parameter binding.
+The `escapeSingleQuote` function was deleted entirely. Table names and validated
+sort column names still use `fmt.Sprintf` (they are constants, not user input).
+LIMIT clauses were added to `GetProviders` (50) and `GetTrafficTimeseries` (1000)
+to prevent unbounded result sets.
+
+### RabbitMQ credentials template approach
+
+RabbitMQ credentials were previously defined in two places that had to be manually
+synchronized: `definitions.json` (hardcoded `guest:guest`) and `.env` env vars
+(`RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`). When `load_definitions` is set
+in `rabbitmq.conf`, RabbitMQ ignores the `RABBITMQ_DEFAULT_USER/PASS` env vars entirely.
+A deployer who changed only the env vars would believe they had secured RabbitMQ but
+the broker would still use the hardcoded credentials.
+
+The fix: `definitions.json.template` with `${RABBITMQ_DEFAULT_USER}` and
+`${RABBITMQ_DEFAULT_PASS}` placeholders, a custom entrypoint script that runs
+`envsubst` to generate `definitions.json` at startup, and mounting this in
+docker-compose. The old `definitions.json` with hardcoded credentials was deleted.
+Credentials are now controlled entirely by the env vars in `.env`.
+
+### Event batching tuned for sub-second dashboard latency
+
+The original batching defaults were designed for a hypothetical high-volume
+enterprise fleet: 30-second drain interval, 100-event HTTP batch size. In practice,
+a developer generating a handful of events during local testing had to wait up to
+30 seconds to see anything in the dashboard. This made the development loop feel
+broken even though the pipeline was working correctly.
+
+New defaults: the SQLite buffer drains every 1 second (configurable via
+`drain_interval_secs` in config.toml), the HTTP batch flushes at 10 events instead
+of 100, and a 500ms background flush timer sends any events sitting in the batch
+buffer regardless of count. Under typical developer load, events appear in the
+dashboard within 1 second of capture.
+
+The tradeoff is more frequent HTTP requests to the gateway. A developer machine
+generating 10-50 events per minute produces at most one request per second, which
+the gateway handles trivially. For high-volume deployments that want larger batches
+and less frequent uploads, the drain interval and batch size are configurable.
+
+### Tag-based releases over continuous releases
+
+Releases are triggered by pushing a semantic version tag (`v*.*.*`), not by
+merging to main. Merging to main only runs CI. A release is a deliberate,
+version-tagged event.
+
+The alternative was continuous releases (build and publish on every merge to
+main). This was rejected because: not every merge is release-worthy (doc fixes,
+test additions, and internal refactors do not need a new binary), continuous
+releases make it hard to communicate "this is a stable version you should
+upgrade to," and the release cadence should be controlled by the maintainer
+rather than the merge frequency.
+
+The `make release` target enforces the workflow: clean working tree, on main,
+valid semver tag, push to trigger the build. The release workflow builds all 5
+platform binaries, strips them, packages as archives, generates SHA256
+checksums, and creates a GitHub release with all assets attached.

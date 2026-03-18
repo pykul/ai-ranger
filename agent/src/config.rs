@@ -33,6 +33,9 @@ pub struct AgentSection {
     pub webhook_batch_size: Option<u64>,
     /// Timeout (seconds) for fetching providers.toml from `providers_url`.
     pub providers_fetch_timeout_secs: Option<u64>,
+    /// Maximum number of events to keep in the SQLite buffer.
+    /// When the buffer exceeds this limit, the oldest events are dropped.
+    pub max_buffer_events: Option<usize>,
 }
 
 impl Default for AgentSection {
@@ -45,6 +48,7 @@ impl Default for AgentSection {
             http_batch_size: None,
             webhook_batch_size: None,
             providers_fetch_timeout_secs: None,
+            max_buffer_events: None,
         }
     }
 }

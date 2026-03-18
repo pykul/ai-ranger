@@ -9,8 +9,9 @@ use crate::output::sink::EventSink;
 use std::sync::Arc;
 
 /// Default interval between SQLite buffer drain attempts.
-/// 30 seconds balances latency to the backend against unnecessary polling.
-pub(crate) const DRAIN_INTERVAL_SECS: u64 = 30;
+/// 1 second keeps dashboard latency under 2 seconds for captured events.
+/// Configurable via `drain_interval_secs` in config.toml.
+pub(crate) const DRAIN_INTERVAL_SECS: u64 = 1;
 
 /// Maximum backoff interval for the drain loop after repeated failures.
 /// 5 minutes caps the worst-case delay before retrying a backend connection.

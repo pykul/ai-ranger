@@ -42,7 +42,7 @@ func main() {
 	}
 	log.Println("[api] Connected to ClickHouse")
 
-	router := api.NewRouter(pg, ch)
+	router := api.NewRouter(pg, ch, cfg)
 
 	addr := fmt.Sprintf(":%d", cfg.APIServerPort)
 	srv := &http.Server{
@@ -59,7 +59,7 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(),
 			time.Duration(cfg.ShutdownTimeoutSecs)*time.Second)
 		defer cancel()
-		srv.Shutdown(ctx)
+		_ = srv.Shutdown(ctx)
 	}()
 
 	log.Printf("[api] Listening on %s (Swagger UI: http://localhost:%d/docs)", addr, cfg.APIServerPort)

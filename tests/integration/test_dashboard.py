@@ -32,7 +32,7 @@ def test_overview_counts_after_ingest(gateway_api, api_server, enrolled_agent, c
         resp = api_server.overview()
         if resp.status_code != 200:
             return False
-        return resp.json().get("total_events", 0) > 0
+        return resp.json().get("total_connections", 0) > 0
 
     wait_for_condition(overview_has_events, timeout_secs=30, description="overview total_events > 0")
 

@@ -1,0 +1,37 @@
+# Production overrides: TLS via nginx, no direct port exposure on internal services.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Prerequisites:
+#   - TLS certificates at /etc/letsencrypt/live/default/ (certbot)
+#   - ENVIRONMENT=production in .env
+#   - JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD set in .env
+
+services:
+
+  nginx:
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    ports:
+      - "80:80"
+      - "443:443"
+
+  # Internal services: no direct port exposure in production
+  gateway:
+    ports: !override []
+
+  api-server:
+    environment:
+      ENVIRONMENT: "production"
+    ports: !override []
+
+  postgres:
+    ports: !override []
+
+  clickhouse:
+    ports: !override []
+
+  rabbitmq:
+    ports: !override []

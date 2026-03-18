@@ -180,7 +180,6 @@ jobs:
 
       - name: Type check (mypy)
         run: mypy . --ignore-missing-imports
-        continue-on-error: true
 
       # Gateway unit tests run here when gateway/tests/ exists.
       # Integration tests run in the separate integration-tests job.
@@ -212,7 +211,6 @@ jobs:
 
       - name: Lint
         run: $(go env GOPATH)/bin/golangci-lint run ./...
-        continue-on-error: true
 
       - name: Test
         run: go test ./... -v
@@ -267,28 +265,29 @@ jobs:
   # already covers.
 
   # ── Dashboard (React/TypeScript) ─────────────────────────────────────────
-  # Uncomment when dashboard/ is created (Phase 3)
-  #
-  # dashboard:
-  #   name: Dashboard (React)
-  #   runs-on: ubuntu-latest
-  #   defaults:
-  #     run:
-  #       working-directory: dashboard
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #
-  #     - uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 22
-  #         cache: npm
-  #         cache-dependency-path: dashboard/package-lock.json
-  #
-  #     - name: Install dependencies
-  #       run: npm ci
-  #
-  #     - name: Lint
-  #       run: make lint
-  #
-  #     - name: Build
-  #       run: make build
+  dashboard:
+    name: Dashboard (React)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build

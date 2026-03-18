@@ -2,82 +2,65 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/pykul/ai-ranger/workers/internal/store"
 )
 
-// @Summary      Get dashboard overview
-// @Description  Returns org-wide summary stats: total events, providers, agents, and events in the last 24h.
-// @Tags         Dashboard
-// @Accept       json
-// @Produce      json
-// @Success      200  {object}  store.OverviewStats
-// @Failure      500  {string}  string  "Internal server error"
-// @Router       /v1/dashboard/overview [get]
+// defaultDays is the default time range for dashboard queries.
+const defaultDays = 7
+
+// parseDays reads the ?days query parameter, defaulting to 7.
+func parseDays(r *http.Request) int {
+	d, err := strconv.Atoi(r.URL.Query().Get("days"))
+	if err != nil || d <= 0 {
+		return defaultDays
+	}
+	return d
+}
+
 func dashboardOverview(chStore *store.ClickHouseStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		stats, err := chStore.GetOverview(r.Context())
+		stats, err := chStore.GetOverview(r.Context(), parseDays(r))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK,stats)
+		writeJSON(w, http.StatusOK, stats)
 	}
 }
 
-// @Summary      Get provider breakdown
-// @Description  Returns per-provider stats: connection count and unique users.
-// @Tags         Dashboard
-// @Accept       json
-// @Produce      json
-// @Success      200  {array}   store.ProviderBreakdown
-// @Failure      500  {string}  string  "Internal server error"
-// @Router       /v1/dashboard/providers [get]
 func dashboardProviders(chStore *store.ClickHouseStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		providers, err := chStore.GetProviders(r.Context())
+		providers, err := chStore.GetProviders(r.Context(), parseDays(r))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK,providers)
+		writeJSON(w, http.StatusOK, providers)
 	}
 }
 
-// @Summary      Get user activity
-// @Description  Returns per-user activity: username, hostname, provider, app, connection count, last active.
-// @Tags         Dashboard
-// @Accept       json
-// @Produce      json
-// @Success      200  {array}   store.UserActivity
-// @Failure      500  {string}  string  "Internal server error"
-// @Router       /v1/dashboard/users [get]
 func dashboardUsers(chStore *store.ClickHouseStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		users, err := chStore.GetUsers(r.Context())
+		days := parseDays(r)
+		provider := r.URL.Query().Get("provider")
+		users, err := chStore.GetUsers(r.Context(), days, provider)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK,users)
+		writeJSON(w, http.StatusOK, users)
 	}
 }
 
-// @Summary      Get traffic timeseries
-// @Description  Returns hourly traffic by provider for the last 7 days.
-// @Tags         Dashboard
-// @Accept       json
-// @Produce      json
-// @Success      200  {array}   store.TrafficPoint
-// @Failure      500  {string}  string  "Internal server error"
-// @Router       /v1/dashboard/traffic/timeseries [get]
 func dashboardTraffic(chStore *store.ClickHouseStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		traffic, err := chStore.GetTrafficTimeseries(r.Context())
+		traffic, err := chStore.GetTrafficTimeseries(r.Context(), parseDays(r))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK,traffic)
+		writeJSON(w, http.StatusOK, traffic)
 	}
 }

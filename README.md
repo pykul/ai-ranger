@@ -86,7 +86,8 @@ To build and develop AI Ranger, you need the following tools:
 
 | Tool | Minimum Version | Purpose |
 |------|----------------|---------|
-| Docker + Docker Compose | Docker 24+ | Running the full backend stack |
+| Docker + Docker Compose | Docker 24+ | Running the full platform stack |
+| Node.js | 22+ | Building and running the dashboard |
 | Rust (via rustup) | 1.75+ (see `agent/Cargo.toml`) | Building the agent |
 | Go | 1.22+ (see `workers/go.mod`) | Building the workers |
 | Python | 3.12+ | Running the gateway |
@@ -110,6 +111,7 @@ powershell -ExecutionPolicy Bypass -File scripts/install-deps/windows.ps1
 ```bash
 docker --version          # Docker version 24+
 docker compose version    # Docker Compose version 2+
+node --version            # v22+
 rustc --version           # rustc 1.75+
 go version                # go1.22+
 python3 --version         # Python 3.12+
@@ -120,7 +122,7 @@ protoc --version          # libprotoc 3+
 
 ## Quick start
 
-### 1. Start the backend
+### 1. Start the platform
 
 ```bash
 git clone https://github.com/pykul/ai-ranger
@@ -129,13 +131,25 @@ cp .env.example .env
 make dev
 ```
 
-Wait for all services to start. You should see health checks passing for all containers.
+The first run downloads Docker images and builds all services, which takes a few
+minutes. Subsequent runs are faster. The command waits for every service to report
+healthy before returning. When it finishes you should see `All services healthy`
+and all 8 services are running.
+
+If you see stale data from a previous run, use `make dev-reset` instead. It wipes
+all database volumes and starts fresh.
+
+**Open http://localhost:8000 in your browser to see the dashboard.**
 
 | Service | URL |
 |---------|-----|
-| Gateway Swagger UI | http://localhost:8080/docs |
-| API Server Swagger UI | http://localhost:8081/docs |
+| Dashboard | http://localhost:8000 |
+| Gateway Swagger UI | http://localhost:8000/ingest/docs |
+| API Server Swagger UI | http://localhost:8000/api/docs |
 | RabbitMQ Management | http://localhost:15672 |
+
+Run `make logs` to view service logs. Direct ports (8080 for gateway, 8081
+for API server) are also available for debugging.
 
 ### 2. Build, enroll, and run the agent
 
@@ -147,10 +161,10 @@ capturing in one step:
 cargo build --manifest-path agent/Cargo.toml
 
 # Linux / macOS
-sudo ./target/debug/ai-ranger --token=tok_test_dev --backend=http://localhost:8080
+sudo ./target/debug/ai-ranger --token=tok_test_dev --backend=http://localhost:8000/ingest
 
 # Windows (run as Administrator)
-.\target\debug\ai-ranger.exe --token=tok_test_dev --backend=http://localhost:8080
+.\target\debug\ai-ranger.exe --token=tok_test_dev --backend=http://localhost:8000/ingest
 ```
 
 On first run, the agent enrolls with the backend and begins capturing immediately.
@@ -161,6 +175,24 @@ to a platform-specific config directory and reused automatically:
 - macOS: `~/Library/Application Support/ai-ranger/config.json`
 - Windows: `%APPDATA%\ai-ranger\config.json`
 
+**If the agent says "already enrolled" but events do not appear in the dashboard,**
+the saved config is stale. This happens when the backend database is reset (e.g.
+`make dev-reset`) while the agent still has credentials from a previous run. Delete
+the config file and re-enroll:
+
+```bash
+# Linux
+rm ~/.config/ai-ranger/config.json
+
+# macOS
+rm ~/Library/Application\ Support/ai-ranger/config.json
+
+# Windows (PowerShell)
+Remove-Item "$env:APPDATA\ai-ranger\config.json"
+```
+
+Then restart the agent with `--token` and `--backend` as shown above.
+
 ### 3. Verify end-to-end
 
 In another terminal, trigger some AI provider traffic:
@@ -170,15 +202,18 @@ curl -s https://api.openai.com > /dev/null
 curl -s https://api.anthropic.com > /dev/null
 ```
 
-Check that events flowed through the pipeline:
+Wait a few seconds for events to flow through RabbitMQ into ClickHouse, then
+check that they arrived:
 
 ```bash
 # See your enrolled agent
-curl -s http://localhost:8081/v1/dashboard/fleet | python3 -m json.tool
+curl -s http://localhost:8000/api/v1/dashboard/fleet | python3 -m json.tool
 
-# See detected events (once ClickHouse has ingested)
-curl -s http://localhost:8081/v1/dashboard/overview | python3 -m json.tool
+# See detected events
+curl -s http://localhost:8000/api/v1/dashboard/overview | python3 -m json.tool
 ```
+
+You should see `total_connections` greater than 0 in the overview response.
 
 ---
 
@@ -196,7 +231,7 @@ ai-ranger.exe
 ```
 
 ```json
-{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","os_type":"windows","timestamp_ms":1773564763684,"provider":"openai","provider_host":"api.openai.com","process_name":"curl.exe","process_pid":22276,"src_ip":"192.168.1.232","detection_method":"SNI","capture_mode":"DNS_SNI"}
+{"agent_id":"","machine_hostname":"Omri-PC","os_username":"omria","os_type":"windows","connection_id":"a1b2c3d4e5f6","timestamp_ms":1773564763684,"provider":"openai","provider_host":"api.openai.com","process_name":"curl.exe","process_pid":22276,"src_ip":"192.168.1.232","detection_method":"SNI","capture_mode":"DNS_SNI"}
 ```
 
 Fields like `agent_id` are populated after enrollment. In standalone mode they are empty.
@@ -208,7 +243,60 @@ A default `config.toml` with all available options documented ships at `agent/co
 
 ## Production deployment
 
-### Pre-built binaries
+### Backend setup
+
+**Prerequisites:**
+
+- A Linux server with Docker and Docker Compose v2 installed
+- A domain name with a DNS A record pointing to the server
+- Ports 80 and 443 open in the server's firewall
+- TLS certificates (Let's Encrypt recommended)
+
+**1. Generate TLS certificates:**
+
+```bash
+sudo apt install certbot
+sudo certbot certonly --standalone -d ranger.example.com
+sudo mkdir -p /etc/letsencrypt/live/default
+sudo ln -sf /etc/letsencrypt/live/ranger.example.com/fullchain.pem /etc/letsencrypt/live/default/fullchain.pem
+sudo ln -sf /etc/letsencrypt/live/ranger.example.com/privkey.pem /etc/letsencrypt/live/default/privkey.pem
+```
+
+**2. Configure environment variables:**
+
+```bash
+git clone https://github.com/pykul/ai-ranger
+cd ai-ranger
+cp .env.example .env
+```
+
+Edit `.env` and set the following production values:
+
+| Variable | Value | Notes |
+|----------|-------|-------|
+| `ENVIRONMENT` | `production` | Enables JWT auth, disables seed data |
+| `DOMAIN` | `ranger.example.com` | Your production domain |
+| `JWT_SECRET` | Output of `openssl rand -hex 32` | Used to sign dashboard login tokens |
+| `ADMIN_EMAIL` | `admin@example.com` | Dashboard login email |
+| `ADMIN_PASSWORD` | A strong password | Plaintext here, hashed in memory at startup |
+| `POSTGRES_PASSWORD` | A strong password | Postgres superuser password |
+| `RABBITMQ_DEFAULT_USER` | `ranger` | Change from default `guest` |
+| `RABBITMQ_DEFAULT_PASS` | A strong password | Change from default `guest` |
+
+**3. Start the production stack:**
+
+```bash
+cd docker
+docker compose --env-file ../.env \
+  -f docker-compose.yml -f docker-compose.prod.yml \
+  up -d --wait
+```
+
+The dashboard is available at `https://ranger.example.com`. Only ports 80
+(redirects to 443) and 443 are exposed. All internal services (Postgres,
+ClickHouse, RabbitMQ, gateway, workers) are not reachable from outside.
+
+### Pre-built agent binaries
 
 Pre-built binaries for Linux, macOS (Intel and Apple Silicon), and Windows are
 attached to every release on the [GitHub Releases page](https://github.com/pykul/ai-ranger/releases).
@@ -234,16 +322,16 @@ Each release includes SHA256 checksums in `checksums.txt`. Verify before running
 sha256sum -c checksums.txt --ignore-missing
 ```
 
-### Enrolling with a production backend
+### Enrolling with a production instance
 
 Generate an enrollment token from the admin API, then start the agent:
 
 ```bash
 # Linux / macOS
-ai-ranger --token=tok_your_token --backend=https://your-instance.com
+ai-ranger --token=tok_your_token --backend=https://your-instance.com/ingest
 
 # Windows (run as Administrator)
-ai-ranger.exe --token=tok_your_token --backend=https://your-instance.com
+ai-ranger.exe --token=tok_your_token --backend=https://your-instance.com/ingest
 ```
 
 The agent enrolls with the backend on first run and starts capturing immediately.
@@ -254,7 +342,7 @@ For scripted deployments where enrollment and daemon start are separate steps
 (e.g. installer scripts), use `--enroll` to enroll and exit without capturing:
 
 ```bash
-ai-ranger --enroll --token=tok_your_token --backend=https://your-instance.com
+ai-ranger --enroll --token=tok_your_token --backend=https://your-instance.com/ingest
 # then start as daemon separately
 ```
 
@@ -317,6 +405,19 @@ For providers with dedicated IP ranges - currently the Anthropic API - the agent
 back to matching the connection's destination IP against known CIDR ranges. These
 connections appear with `detection_method: "IP_RANGE"` in the output.
 
+**Deployment security.** In production, agent-to-platform communication is encrypted
+over HTTPS, the dashboard requires JWT authentication, enrollment tokens are hashed
+before storage, ClickHouse queries use parameterized inputs, and the dashboard never
+exposes internal error details to the browser. Event data stays inside your
+infrastructure unless you explicitly configure an outbound webhook sink.
+
+AI Ranger is a visibility tool, not a security boundary. You are responsible for
+hardening the host infrastructure: TLS certificates, firewall rules, restricting
+database and message queue ports to the Docker network, and storing secrets in a
+secrets manager rather than a plain `.env` file. The security of your deployment is
+determined by the infrastructure you put around it. See ARCHITECTURE.md for the
+production deployment checklist.
+
 ---
 
 ## Architecture overview
@@ -333,15 +434,17 @@ destinations. Multiple sinks can be active at once, configured in `config.toml`.
 how teams with existing observability infrastructure connect AI Ranger to Datadog, Splunk,
 or any HTTPS endpoint without running the backend at all.
 
-The backend is optional and self-hosted. It consists of a Python/FastAPI gateway that
-receives agent batches and publishes them to RabbitMQ, Go workers that consume from
-the queue and write to storage, and a React dashboard. Postgres holds identity data
-(organizations, agents, enrollment tokens) with schema managed via Alembic migrations.
-ClickHouse holds the event timeseries. The full stack starts with `make dev`.
+The platform is self-hosted. It consists of nginx as the single entry point, a
+Python/FastAPI gateway that receives agent batches and publishes them to RabbitMQ,
+Go workers that consume from the queue and write to storage, and a React dashboard.
+Postgres holds identity data (organizations, agents, enrollment tokens) with schema
+managed via Alembic migrations. ClickHouse holds the event timeseries. The full
+stack starts with `make dev`.
 
 When the backend sink is configured, the agent buffers events locally in SQLite and
-uploads batches every 30 seconds. If the backend is unreachable, events accumulate
-locally and are delivered when the connection recovers.
+uploads them within seconds. Events typically appear in the dashboard under 1 second
+after capture. If the backend is unreachable, events accumulate locally and are
+delivered when the connection recovers.
 
 For the complete technical design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
@@ -354,13 +457,13 @@ intentional. It is the trust-first approach, and it covers the most important us
 case: knowing which AI providers your team is talking to, without reading what they
 are saying.
 
-**MITM mode (planned, opt-in only)**
+**MITM mode (Phase 5, planned, opt-in only)**
 
-A future version will include an optional MITM (man-in-the-middle) capture mode for
-users and organizations that want deeper visibility. When enabled, this mode will
-reveal the exact model being called (e.g. `claude-opus-4-5` vs `claude-haiku-3-5`), token
-counts, and response latency. Information that is only available inside the encrypted
-payload.
+A future version (Phase 5) will include an optional MITM (man-in-the-middle) capture
+mode for users and organizations that want deeper visibility. When enabled, this mode
+will reveal the exact model being called (e.g. `claude-opus-4-5` vs `claude-haiku-3-5`),
+token counts, and response latency. Information that is only available inside the
+encrypted payload.
 
 This mode will require explicit opt-in: a separate install step, a separate flag, and
 an acknowledgment of what it does. It will never be the default. It will also come with
@@ -407,6 +510,19 @@ tests\integration\scripts\run-windows.ps1
 ```
 
 See `tests/README.md` for details on the test layers and how to add new tests.
+
+### Creating a release
+
+Releases are triggered by pushing a version tag. The `make release` command
+handles the full flow: it verifies the working tree is clean, confirms you are
+on `main`, prompts for a version in `v*.*.*` format, and pushes the tag. GitHub
+Actions then builds agent binaries for all 5 supported platforms (Linux x86_64
+and ARM64, macOS Intel and Apple Silicon, Windows x86_64), packages them as
+archives, generates SHA256 checksums, and publishes a GitHub release with
+everything attached.
+
+Pre-built binaries for each release are on the
+[GitHub Releases page](https://github.com/pykul/ai-ranger/releases).
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 

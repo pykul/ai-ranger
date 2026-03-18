@@ -46,6 +46,15 @@ func (s *PostgresStore) CreateToken(token *models.EnrollmentToken) error {
 	return nil
 }
 
+// ListTokens returns all enrollment tokens.
+func (s *PostgresStore) ListTokens() ([]models.EnrollmentToken, error) {
+	var tokens []models.EnrollmentToken
+	if err := s.db.Order("created_at DESC").Find(&tokens).Error; err != nil {
+		return nil, fmt.Errorf("list tokens: %w", err)
+	}
+	return tokens, nil
+}
+
 // DeleteToken revokes an enrollment token by ID.
 func (s *PostgresStore) DeleteToken(id uuid.UUID) error {
 	if err := s.db.Delete(&models.EnrollmentToken{}, "id = ?", id).Error; err != nil {

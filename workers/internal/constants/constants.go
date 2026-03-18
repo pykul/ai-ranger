@@ -47,6 +47,9 @@ const RouteDashboardTraffic = "/v1/dashboard/traffic/timeseries"
 // RouteDashboardFleet returns all enrolled agents and status.
 const RouteDashboardFleet = "/v1/dashboard/fleet"
 
+// RouteEvents returns paginated raw events with search.
+const RouteEvents = "/v1/events"
+
 // RouteAdminTokensCreate creates a new enrollment token.
 const RouteAdminTokensCreate = "/v1/admin/tokens"
 
@@ -56,8 +59,17 @@ const RouteAdminTokensDelete = "/v1/admin/tokens/{id}"
 // RouteAdminAgentsDelete revokes an agent.
 const RouteAdminAgentsDelete = "/v1/admin/agents/{id}"
 
+// RouteAuthLogin is the login endpoint for dashboard authentication.
+const RouteAuthLogin = "/v1/auth/login"
+
+// RouteAuthRefresh exchanges a refresh token for a new access token.
+const RouteAuthRefresh = "/v1/auth/refresh"
+
 // RouteHealth is the health check endpoint for readiness/liveness probes.
 const RouteHealth = "/health"
+
+// EnvironmentDevelopment is the value of ENVIRONMENT that disables auth.
+const EnvironmentDevelopment = "development"
 
 // -- Agent status -------------------------------------------------------------
 

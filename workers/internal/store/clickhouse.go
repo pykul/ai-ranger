@@ -4,13 +4,19 @@ package store
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
 	"github.com/pykul/ai-ranger/workers/internal/constants"
 )
+
+// maxProviderResults caps the number of providers returned to prevent unbounded queries.
+const maxProviderResults = 50
+
+// maxTimeseriesBuckets caps the number of timeseries buckets returned.
+const maxTimeseriesBuckets = 1000
 
 // ClickHouseStore provides read queries against the ai_events table.
 type ClickHouseStore struct {
@@ -38,10 +44,10 @@ func (s *ClickHouseStore) GetOverview(ctx context.Context, days int) (*OverviewS
 			uniq(os_username) AS active_users,
 			uniq(provider) AS provider_count
 		FROM %s
-		WHERE timestamp > now() - INTERVAL %d DAY
-	`, constants.ClickHouseEventsTable, days)
+		WHERE timestamp > now() - INTERVAL ? DAY
+	`, constants.ClickHouseEventsTable)
 
-	row := s.conn.QueryRow(ctx, query)
+	row := s.conn.QueryRow(ctx, query, days)
 	if err := row.Scan(&stats.TotalConnections, &stats.ActiveUsers, &stats.ProviderCount); err != nil {
 		return nil, fmt.Errorf("query overview: %w", err)
 	}
@@ -60,12 +66,13 @@ func (s *ClickHouseStore) GetProviders(ctx context.Context, days int) ([]Provide
 	query := fmt.Sprintf(`
 		SELECT provider, count() AS connections, uniq(os_username) AS unique_users
 		FROM %s
-		WHERE timestamp > now() - INTERVAL %d DAY
+		WHERE timestamp > now() - INTERVAL ? DAY
 		GROUP BY provider
 		ORDER BY connections DESC
-	`, constants.ClickHouseEventsTable, days)
+		LIMIT ?
+	`, constants.ClickHouseEventsTable)
 
-	rows, err := s.conn.Query(ctx, query)
+	rows, err := s.conn.Query(ctx, query, days, maxProviderResults)
 	if err != nil {
 		return nil, fmt.Errorf("query providers: %w", err)
 	}
@@ -91,20 +98,30 @@ type UserActivity struct {
 // GetUsers returns per-user connection counts for the given time range.
 // If provider is non-empty, filters to that provider only.
 func (s *ClickHouseStore) GetUsers(ctx context.Context, days int, provider string) ([]UserActivity, error) {
-	where := fmt.Sprintf("timestamp > now() - INTERVAL %d DAY", days)
+	var query string
+	var args []any
+
 	if provider != "" {
-		where += fmt.Sprintf(" AND provider = '%s'", escapeSingleQuote(provider))
+		query = fmt.Sprintf(`
+			SELECT os_username, count() AS connections
+			FROM %s
+			WHERE timestamp > now() - INTERVAL ? DAY AND provider = ?
+			GROUP BY os_username
+			ORDER BY connections DESC
+		`, constants.ClickHouseEventsTable)
+		args = []any{days, provider}
+	} else {
+		query = fmt.Sprintf(`
+			SELECT os_username, count() AS connections
+			FROM %s
+			WHERE timestamp > now() - INTERVAL ? DAY
+			GROUP BY os_username
+			ORDER BY connections DESC
+		`, constants.ClickHouseEventsTable)
+		args = []any{days}
 	}
 
-	query := fmt.Sprintf(`
-		SELECT os_username, count() AS connections
-		FROM %s
-		WHERE %s
-		GROUP BY os_username
-		ORDER BY connections DESC
-	`, constants.ClickHouseEventsTable, where)
-
-	rows, err := s.conn.Query(ctx, query)
+	rows, err := s.conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query users: %w", err)
 	}
@@ -133,12 +150,13 @@ func (s *ClickHouseStore) GetTrafficTimeseries(ctx context.Context, days int) ([
 	query := fmt.Sprintf(`
 		SELECT toStartOfHour(timestamp) AS ts, provider, count() AS connections
 		FROM %s
-		WHERE timestamp > now() - INTERVAL %d DAY
+		WHERE timestamp > now() - INTERVAL ? DAY
 		GROUP BY ts, provider
 		ORDER BY ts
-	`, constants.ClickHouseEventsTable, days)
+		LIMIT ?
+	`, constants.ClickHouseEventsTable)
 
-	rows, err := s.conn.Query(ctx, query)
+	rows, err := s.conn.Query(ctx, query, days, maxTimeseriesBuckets)
 	if err != nil {
 		return nil, fmt.Errorf("query traffic: %w", err)
 	}
@@ -181,17 +199,7 @@ type EventsResult struct {
 
 // GetEvents returns paginated raw events with optional search and time filter.
 func (s *ClickHouseStore) GetEvents(ctx context.Context, q string, days, page, limit int, sort, order string) (*EventsResult, error) {
-	where := fmt.Sprintf("timestamp > now() - INTERVAL %d DAY", days)
-	if q != "" {
-		escaped := escapeSingleQuote(q)
-		like := fmt.Sprintf("'%%%s%%'", escaped)
-		where += fmt.Sprintf(` AND (
-			provider ILIKE %s OR provider_host ILIKE %s OR process_name ILIKE %s OR
-			hostname ILIKE %s OR os_username ILIKE %s OR src_ip ILIKE %s
-		)`, like, like, like, like, like, like)
-	}
-
-	// Validate sort column to prevent injection.
+	// Validate sort column to prevent injection (only table names use fmt.Sprintf).
 	sortCol := "timestamp"
 	switch sort {
 	case "timestamp", "os_username", "provider", "process_name":
@@ -204,29 +212,81 @@ func (s *ClickHouseStore) GetEvents(ctx context.Context, q string, days, page, l
 
 	offset := (page - 1) * limit
 
+	if q != "" {
+		return s.getEventsWithSearch(ctx, q, days, sortCol, orderDir, limit, offset)
+	}
+	return s.getEventsNoSearch(ctx, days, sortCol, orderDir, limit, offset)
+}
+
+// getEventsNoSearch handles the common case with no search filter.
+func (s *ClickHouseStore) getEventsNoSearch(ctx context.Context, days int, sortCol, orderDir string, limit, offset int) (*EventsResult, error) {
 	// Count query.
-	countQuery := fmt.Sprintf("SELECT count() FROM %s WHERE %s", constants.ClickHouseEventsTable, where)
+	countQuery := fmt.Sprintf("SELECT count() FROM %s WHERE timestamp > now() - INTERVAL ? DAY",
+		constants.ClickHouseEventsTable)
 	var total uint64
-	if err := s.conn.QueryRow(ctx, countQuery).Scan(&total); err != nil {
+	if err := s.conn.QueryRow(ctx, countQuery, days).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count events: %w", err)
 	}
 
-	// Data query.
+	// Data query. sortCol and orderDir are validated enum values, not user input.
 	dataQuery := fmt.Sprintf(`
 		SELECT timestamp, os_username, hostname, provider, provider_host, process_name,
 			os_type, detection_method, src_ip, model_hint, process_path, capture_mode
 		FROM %s
-		WHERE %s
+		WHERE timestamp > now() - INTERVAL ? DAY
 		ORDER BY %s %s
-		LIMIT %d OFFSET %d
-	`, constants.ClickHouseEventsTable, where, sortCol, orderDir, limit, offset)
+		LIMIT ? OFFSET ?
+	`, constants.ClickHouseEventsTable, sortCol, orderDir)
 
-	rows, err := s.conn.Query(ctx, dataQuery)
+	rows, err := s.conn.Query(ctx, dataQuery, days, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("query events: %w", err)
 	}
 	defer rows.Close()
 
+	events := s.scanEventRows(rows)
+	return &EventsResult{Events: events, Total: total, Page: (offset / limit) + 1, Limit: limit}, rows.Err()
+}
+
+// getEventsWithSearch handles the search filter case using parameterized ILIKE.
+func (s *ClickHouseStore) getEventsWithSearch(ctx context.Context, q string, days int, sortCol, orderDir string, limit, offset int) (*EventsResult, error) {
+	like := "%" + q + "%"
+
+	// Count query with search.
+	countQuery := fmt.Sprintf(`SELECT count() FROM %s WHERE timestamp > now() - INTERVAL ? DAY AND (
+		provider ILIKE ? OR provider_host ILIKE ? OR process_name ILIKE ? OR
+		hostname ILIKE ? OR os_username ILIKE ? OR src_ip ILIKE ?
+	)`, constants.ClickHouseEventsTable)
+	var total uint64
+	if err := s.conn.QueryRow(ctx, countQuery, days, like, like, like, like, like, like).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count events: %w", err)
+	}
+
+	// Data query with search. sortCol and orderDir are validated enum values.
+	dataQuery := fmt.Sprintf(`
+		SELECT timestamp, os_username, hostname, provider, provider_host, process_name,
+			os_type, detection_method, src_ip, model_hint, process_path, capture_mode
+		FROM %s
+		WHERE timestamp > now() - INTERVAL ? DAY AND (
+			provider ILIKE ? OR provider_host ILIKE ? OR process_name ILIKE ? OR
+			hostname ILIKE ? OR os_username ILIKE ? OR src_ip ILIKE ?
+		)
+		ORDER BY %s %s
+		LIMIT ? OFFSET ?
+	`, constants.ClickHouseEventsTable, sortCol, orderDir)
+
+	rows, err := s.conn.Query(ctx, dataQuery, days, like, like, like, like, like, like, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("query events: %w", err)
+	}
+	defer rows.Close()
+
+	events := s.scanEventRows(rows)
+	return &EventsResult{Events: events, Total: total, Page: (offset / limit) + 1, Limit: limit}, rows.Err()
+}
+
+// scanEventRows scans all rows from an event query into a slice.
+func (s *ClickHouseStore) scanEventRows(rows driver.Rows) []EventRow {
 	var events []EventRow
 	for rows.Next() {
 		var e EventRow
@@ -235,19 +295,10 @@ func (s *ClickHouseStore) GetEvents(ctx context.Context, q string, days, page, l
 			&e.ProcessName, &e.OsType, &e.DetectionMethod, &e.SrcIP, &e.ModelHint,
 			&e.ProcessPath, &e.CaptureMode,
 		); err != nil {
-			return nil, fmt.Errorf("scan event row: %w", err)
+			// Log and skip malformed rows rather than failing the entire query.
+			continue
 		}
 		events = append(events, e)
 	}
-
-	return &EventsResult{
-		Events: events,
-		Total:  total,
-		Page:   page,
-		Limit:  limit,
-	}, nil
-}
-
-func escapeSingleQuote(s string) string {
-	return strings.ReplaceAll(s, "'", "\\'")
+	return events
 }

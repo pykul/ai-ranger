@@ -34,9 +34,9 @@ cargo test -p ai-ranger test_name  # Run a single test
 
 Running the agent binary requires root/Administrator (raw socket access for packet capture).
 
-## Current State: Phase 3 in progress
+## Current State: Phase 3 complete (dashboard MVP)
 
-The Rust agent is complete with all Phase 1 deliverables plus the Phase 2 protobuf switch. The full platform is operational: nginx as single entry point, FastAPI gateway (ingest, enrollment, providers endpoints), Go workers (ingest consumer writing to ClickHouse, API server with dashboard and admin endpoints, JWT auth with environment-aware bypass), Docker Compose stack (nginx, Postgres, ClickHouse, RabbitMQ, gateway, ingest-worker, api-server, dashboard), protobuf schema with generated code for Python/Go/Rust, integration test suite, and CI pipeline. The React dashboard is scaffolded with auth, nginx ingress, and placeholder pages. Dashboard data pages are being implemented. `make dev` starts the full 8-service stack via Docker Compose.
+The Rust agent is complete with all Phase 1 deliverables plus the Phase 2 protobuf switch. The full platform is operational: nginx as single entry point, FastAPI gateway (ingest, enrollment, providers endpoints), Go workers (ingest consumer writing to ClickHouse, API server with dashboard and admin endpoints, JWT auth with environment-aware bypass), Docker Compose stack (nginx, Postgres, ClickHouse, RabbitMQ, gateway, ingest-worker, api-server, dashboard), protobuf schema with generated code for Python/Go/Rust, integration test suite, and CI pipeline. The React dashboard is complete with Overview (stats, charts, ranked lists), Events (paginated search with sort), Admin (fleet and token management), and Login (production JWT auth). `make dev` starts the full 8-service stack via Docker Compose.
 
 ## Architecture
 

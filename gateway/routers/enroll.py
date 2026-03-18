@@ -57,7 +57,9 @@ async def enroll(
     token_hash = EnrollmentToken.hash_token(req.token)
 
     result = await db.execute(
-        select(EnrollmentToken).where(EnrollmentToken.token_hash == token_hash)
+        select(EnrollmentToken)
+        .where(EnrollmentToken.token_hash == token_hash)
+        .with_for_update()
     )
     token_record = result.scalar_one_or_none()
 

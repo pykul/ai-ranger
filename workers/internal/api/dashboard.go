@@ -23,7 +23,7 @@ func dashboardOverview(chStore *store.ClickHouseStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		stats, err := chStore.GetOverview(r.Context(), parseDays(r))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, stats)
@@ -34,7 +34,7 @@ func dashboardProviders(chStore *store.ClickHouseStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		providers, err := chStore.GetProviders(r.Context(), parseDays(r))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, providers)
@@ -47,7 +47,7 @@ func dashboardUsers(chStore *store.ClickHouseStore) http.HandlerFunc {
 		provider := r.URL.Query().Get("provider")
 		users, err := chStore.GetUsers(r.Context(), days, provider)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, users)
@@ -58,7 +58,7 @@ func dashboardTraffic(chStore *store.ClickHouseStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		traffic, err := chStore.GetTrafficTimeseries(r.Context(), parseDays(r))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, traffic)

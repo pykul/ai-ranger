@@ -122,7 +122,8 @@ async fn async_main(cli: Cli, pre_enrolled: Option<identity::config::AgentConfig
         .outputs
         .iter()
         .any(|o| matches!(o, OutputConfig::Http { .. }));
-    let event_buffer = buffer::store::open_if_needed(has_http);
+    let event_buffer =
+        buffer::store::open_if_needed(has_http, app_config.agent.max_buffer_events);
 
     // Spawn buffer drain task
     let drain_interval = app_config

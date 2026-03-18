@@ -142,12 +142,12 @@ all database volumes and starts fresh.
 | Service | URL |
 |---------|-----|
 | Dashboard | http://localhost:8000 |
-| Gateway Swagger UI | http://localhost:8080/docs |
-| API Server Swagger UI | http://localhost:8081/docs |
+| Gateway Swagger UI | http://localhost:8000/ingest/docs |
+| API Server Swagger UI | http://localhost:8000/api/docs |
 | RabbitMQ Management | http://localhost:15672 |
 
-Run `make logs` to view service logs. The gateway and API server also expose
-direct ports for debugging.
+Run `make logs` to view service logs. Direct ports (8080 for gateway, 8081
+for API server) are also available for debugging.
 
 ### 2. Build, enroll, and run the agent
 
@@ -382,6 +382,19 @@ For providers with dedicated IP ranges - currently the Anthropic API - the agent
 back to matching the connection's destination IP against known CIDR ranges. These
 connections appear with `detection_method: "IP_RANGE"` in the output.
 
+**Deployment security.** In production, agent-to-platform communication is encrypted
+over HTTPS, the dashboard requires JWT authentication, enrollment tokens are hashed
+before storage, ClickHouse queries use parameterized inputs, and the dashboard never
+exposes internal error details to the browser. Event data stays inside your
+infrastructure unless you explicitly configure an outbound webhook sink.
+
+AI Ranger is a visibility tool, not a security boundary. You are responsible for
+hardening the host infrastructure: TLS certificates, firewall rules, restricting
+database and message queue ports to the Docker network, and storing secrets in a
+secrets manager rather than a plain `.env` file. The security of your deployment is
+determined by the infrastructure you put around it. See ARCHITECTURE.md for the
+production deployment checklist.
+
 ---
 
 ## Architecture overview
@@ -420,13 +433,13 @@ intentional. It is the trust-first approach, and it covers the most important us
 case: knowing which AI providers your team is talking to, without reading what they
 are saying.
 
-**MITM mode (planned, opt-in only)**
+**MITM mode (Phase 5, planned, opt-in only)**
 
-A future version will include an optional MITM (man-in-the-middle) capture mode for
-users and organizations that want deeper visibility. When enabled, this mode will
-reveal the exact model being called (e.g. `claude-opus-4-5` vs `claude-haiku-3-5`), token
-counts, and response latency. Information that is only available inside the encrypted
-payload.
+A future version (Phase 5) will include an optional MITM (man-in-the-middle) capture
+mode for users and organizations that want deeper visibility. When enabled, this mode
+will reveal the exact model being called (e.g. `claude-opus-4-5` vs `claude-haiku-3-5`),
+token counts, and response latency. Information that is only available inside the
+encrypted payload.
 
 This mode will require explicit opt-in: a separate install step, a separate flag, and
 an acknowledgment of what it does. It will never be the default. It will also come with

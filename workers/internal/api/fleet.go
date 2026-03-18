@@ -18,7 +18,7 @@ func fleetList(pgStore *store.PostgresStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		agents, err := pgStore.GetFleet()
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, agents)

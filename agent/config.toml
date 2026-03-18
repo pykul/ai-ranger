@@ -23,6 +23,7 @@ mode = "dns-sni"
 # http_batch_size = 100             # Maximum events buffered per HTTP sink flush
 # webhook_batch_size = 100          # Default maximum events buffered per webhook sink flush
 # providers_fetch_timeout_secs = 10 # Timeout for fetching providers.toml from URL
+# max_buffer_events = 10000         # Max events in SQLite buffer before oldest are dropped
 
 # ── Output sinks ────────────────────────────────────────────────────────────
 #

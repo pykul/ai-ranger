@@ -1,6 +1,6 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
-COPY dashboard/package.json dashboard/package-lock.json ./
+COPY dashboard/package.json dashboard/package-lock.json dashboard/.npmrc ./
 RUN npm ci
 COPY dashboard/ .
 RUN npm run build

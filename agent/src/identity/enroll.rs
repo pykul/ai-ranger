@@ -34,9 +34,23 @@ struct EnrollmentResponse {
 /// Enrollment endpoint path on the gateway.
 const ENROLL_PATH: &str = "/v1/agents/enroll";
 
+/// Warn if a non-localhost backend URL uses plaintext HTTP.
+fn warn_if_insecure(url: &str) {
+    if url.starts_with("http://") {
+        let host_part = url.trim_start_matches("http://");
+        let host = host_part.split('/').next().unwrap_or("");
+        let host = host.split(':').next().unwrap_or("");
+        if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+            eprintln!("WARNING: Backend URL uses HTTP. Event data and enrollment tokens will be sent in plaintext. Use HTTPS in production.");
+        }
+    }
+}
+
 /// Perform enrollment by POSTing to the gateway.
 /// Returns the saved AgentConfig on success, or exits the process on failure.
 fn do_enroll(token: &str, backend: &str) -> AgentConfig {
+    warn_if_insecure(backend);
+
     let agent_id = uuid::Uuid::new_v4().to_string();
     let hostname = config::machine_hostname();
     let os_username = config::os_username();

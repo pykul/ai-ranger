@@ -220,7 +220,9 @@ ai-ranger/
 │   ├── clickhouse/
 │   │   └── init.sql            # ClickHouse schema (plain SQL - no ORM for ClickHouse)
 │   └── rabbitmq/
-│       └── definitions.json    # Pre-configured queues and exchanges
+│       ├── definitions.json.template  # Template with ${RABBITMQ_DEFAULT_USER/PASS} placeholders
+│       ├── docker-entrypoint.sh       # Runs envsubst on template, then starts RabbitMQ
+│       └── rabbitmq.conf             # Loads definitions.json (generated at startup)
 │
 ├── docs/                       # Docusaurus (Phase 4+)
 │   └── docs/
@@ -381,6 +383,11 @@ a FastAPI route, stop. That code belongs in the Go workers.
 - Any future async processing (enrichment, alerting)
 
 The dashboard talks to Go only. It never talks to the FastAPI gateway directly.
+
+**Error sanitization:** All Go API handlers use `internalError(w, err)` from `respond.go`
+to return errors. This logs the full error internally and returns a generic JSON
+`{"error": "internal server error"}` to the client. Database errors, connection strings,
+and other internal details are never exposed to callers.
 
 ---
 
@@ -652,6 +659,7 @@ providers_url = "https://raw.githubusercontent.com/pykul/ai-ranger/main/provider
 # http_batch_size = 100             # Maximum events buffered per HTTP sink flush
 # webhook_batch_size = 100          # Default maximum events buffered per webhook sink flush
 # providers_fetch_timeout_secs = 10 # Timeout for fetching providers.toml from URL (seconds)
+# max_buffer_events = 10000         # Max events in SQLite buffer before oldest are dropped
 
 # Multiple outputs supported - events fan out to all of them
 [[outputs]]
@@ -1389,6 +1397,14 @@ Every 30s:
 SQLite buffer is only active when an HTTP output sink is configured.
 In stdout or file mode, there is no local buffer.
 
+The buffer has a configurable maximum size (`max_buffer_events`, default 10,000).
+When the buffer exceeds this limit, the oldest events are dropped to prevent
+unbounded disk growth on machines that run offline for extended periods.
+
+The HTTP sink uses a 30-second request timeout to prevent indefinite hangs
+when the backend is slow or unresponsive. The capture loop and buffer are
+unaffected by slow requests.
+
 ---
 
 ## Self-Hosting
@@ -1608,7 +1624,7 @@ This is required for community adoption.
 - gateway/Makefile and workers/Makefile working
 - `make dev` brings up the full stack end to end
 
-### Phase 3 - Dashboard MVP (3-4 weeks)
+### Phase 3 - Dashboard MVP (complete)
 - Authentication: JWT, single admin user, environment-aware (disabled in dev)
 - Login page in the dashboard (production only)
 - nginx as single ingress point (port 8000 dev, port 443 prod with TLS)
@@ -1620,6 +1636,14 @@ This is required for community adoption.
 - GET /v1/events endpoint with search, pagination, time filtering
 - All dashboard endpoints support ?days query parameter
 - dashboard/Makefile working, CI job enabled
+- Production nginx hardened (security headers, HSTS, server_tokens off)
+- ClickHouse queries fully parameterized (no string interpolation)
+- RabbitMQ credentials via template (single source of truth)
+- Production config validation (JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD required)
+- API error sanitization (no database details leaked to clients)
+- SQLite buffer size limit (configurable max_buffer_events)
+- HTTP sink request timeout (30s)
+- RabbitMQ consumer auto-reconnection on connection loss
 
 ### Phase 4 - Polish + Windows Installer (2-3 weeks)
 - Windows installer (PowerShell) + Windows service registration
@@ -1724,6 +1748,27 @@ to install on machines that monitor network traffic.
 
 6. **Local-first.** The SQLite buffer means data stays on the machine until successfully
    delivered. Nothing is sent to any third party.
+
+---
+
+## Deployment Security
+
+AI Ranger is a visibility tool, not a hardened enterprise security product, and does
+not claim to be. It is built to run inside your own infrastructure. The security
+posture of your deployment is determined by the infrastructure you put around it.
+
+**What AI Ranger provides:** HTTPS encryption for agent-to-platform communication in
+production. JWT authentication on the dashboard. Enrollment tokens hashed before
+storage and never logged in plaintext. Parameterized ClickHouse queries. Sanitized
+error responses that never expose database details to the browser. All event data
+stays inside your infrastructure unless you configure an outbound webhook sink.
+
+**What you are responsible for:** Hardening the host (network perimeter, firewall
+rules, access controls). Managing TLS certificates and keeping them current. Storing
+secrets properly (JWT_SECRET, ADMIN_PASSWORD, database credentials) in a secrets
+manager, not a plain `.env` file. Restricting RabbitMQ management, ClickHouse, and
+Postgres ports so they are not reachable outside the Docker network. Keeping
+dependencies up to date.
 
 ---
 

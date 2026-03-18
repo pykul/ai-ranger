@@ -923,3 +923,36 @@ Ollama entry and its `ports = [11434]` field. Ollama detection will become
 functional once port-based matching is implemented in the classifier. Until
 then, Ollama connections will not be detected, which is preferable to
 misclassifying all localhost traffic.
+
+---
+
+## Phase 3 Hardening (Pre-Release Audit)
+
+### ClickHouse queries switched from string interpolation to parameterized queries
+
+The ClickHouse store (`workers/internal/store/clickhouse.go`) originally used
+`fmt.Sprintf` with a custom `escapeSingleQuote()` helper to build queries with
+user-supplied search terms and provider filters. This was a SQL injection risk —
+the escape function only handled single quotes and could miss edge cases.
+
+All queries were rewritten to use `clickhouse-go`'s native `?` parameter binding.
+The `escapeSingleQuote` function was deleted entirely. Table names and validated
+sort column names still use `fmt.Sprintf` (they are constants, not user input).
+LIMIT clauses were added to `GetProviders` (50) and `GetTrafficTimeseries` (1000)
+to prevent unbounded result sets.
+
+### RabbitMQ credentials template approach
+
+RabbitMQ credentials were previously defined in two places that had to be manually
+synchronized: `definitions.json` (hardcoded `guest:guest`) and `.env` env vars
+(`RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`). When `load_definitions` is set
+in `rabbitmq.conf`, RabbitMQ ignores the `RABBITMQ_DEFAULT_USER/PASS` env vars entirely.
+A deployer who changed only the env vars would believe they had secured RabbitMQ but
+the broker would still use the hardcoded credentials.
+
+The fix: `definitions.json.template` with `${RABBITMQ_DEFAULT_USER}` and
+`${RABBITMQ_DEFAULT_PASS}` placeholders, a custom entrypoint script that runs
+`envsubst` to generate `definitions.json` at startup, and mounting this in
+docker-compose. The old `definitions.json` with hardcoded credentials was deleted.
+Credentials are now controlled entirely by the env vars in `.env`.
+

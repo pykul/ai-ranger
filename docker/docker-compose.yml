@@ -77,16 +77,21 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    # WARNING: User credentials are defined in rabbitmq/definitions.json, NOT
-    # by RABBITMQ_DEFAULT_USER/RABBITMQ_DEFAULT_PASS env vars. When load_definitions
-    # is set in rabbitmq.conf, RabbitMQ skips default user creation from env vars.
-    # To change credentials: update definitions.json AND RABBITMQ_URL in .env.
+    # Credentials are controlled entirely by RABBITMQ_DEFAULT_USER and
+    # RABBITMQ_DEFAULT_PASS in .env. The entrypoint script runs envsubst
+    # on definitions.json.template to produce definitions.json at startup.
+    entrypoint: ["/docker-entrypoint-custom.sh"]
+    command: ["rabbitmq-server"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     ports:
       - "5672:5672"    # AMQP
       - "15672:15672"  # Management UI
     volumes:
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
-      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./rabbitmq/definitions.json.template:/etc/rabbitmq/definitions.json.template:ro
+      - ./rabbitmq/docker-entrypoint.sh:/docker-entrypoint-custom.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
       interval: 5s

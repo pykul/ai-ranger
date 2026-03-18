@@ -11,6 +11,8 @@ import (
 	"strconv"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/pykul/ai-ranger/workers/internal/constants"
 )
 
 // Config holds all runtime configuration loaded from environment variables.
@@ -75,16 +77,38 @@ const defaultShutdownTimeoutSecs = 30
 // Development disables auth; production requires JWT.
 const defaultEnvironment = "development"
 
+// minJWTSecretLength is the minimum acceptable length for JWT_SECRET in production.
+// 32 characters (256 bits) provides sufficient HMAC-SHA256 key strength.
+const minJWTSecretLength = 32
+
 // Load reads all environment variables and returns a Config struct.
 // Missing variables fall back to sensible defaults for local development.
-// In production, ADMIN_PASSWORD is hashed once via bcrypt and the plaintext
-// is not retained in the struct.
+// In production, required variables are validated at startup with fatal errors.
+// ADMIN_PASSWORD is hashed once via bcrypt and the plaintext is not retained.
 func Load() Config {
 	env := envOrDefault("ENVIRONMENT", defaultEnvironment)
+	jwtSecret := os.Getenv("JWT_SECRET")
+	adminEmail := os.Getenv("ADMIN_EMAIL")
 	plainPassword := os.Getenv("ADMIN_PASSWORD")
 
+	// Production validation: fail fast on missing or weak credentials.
+	if env != constants.EnvironmentDevelopment {
+		if len(jwtSecret) < minJWTSecretLength {
+			log.Fatalf("[config] JWT_SECRET must be set to at least %d characters in production. "+
+				"Generate one with: openssl rand -hex 32", minJWTSecretLength)
+		}
+		if adminEmail == "" {
+			log.Fatalf("[config] ADMIN_EMAIL must be set in production. " +
+				"This is the email used to log into the dashboard.")
+		}
+		if plainPassword == "" {
+			log.Fatalf("[config] ADMIN_PASSWORD must be set in production. " +
+				"This is the password used to log into the dashboard.")
+		}
+	}
+
 	var passwordHash []byte
-	if env != "development" && plainPassword != "" {
+	if env != constants.EnvironmentDevelopment && plainPassword != "" {
 		var err error
 		passwordHash, err = bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
 		if err != nil {
@@ -100,8 +124,8 @@ func Load() Config {
 		APIServerPort:       envOrDefaultInt("API_SERVER_PORT", defaultAPIServerPort),
 		ShutdownTimeoutSecs: envOrDefaultInt("SHUTDOWN_TIMEOUT_SECS", defaultShutdownTimeoutSecs),
 		Environment:         env,
-		JWTSecret:           os.Getenv("JWT_SECRET"),
-		AdminEmail:          os.Getenv("ADMIN_EMAIL"),
+		JWTSecret:           jwtSecret,
+		AdminEmail:          adminEmail,
 		AdminPasswordHash:   passwordHash,
 	}
 }

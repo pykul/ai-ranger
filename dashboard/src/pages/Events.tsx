@@ -52,15 +52,6 @@ export default function Events() {
     setPage(1);
   }
 
-  function SortIcon({ field }: { field: SortField }) {
-    if (sort !== field) return null;
-    return order === "asc" ? (
-      <ChevronUp className="inline h-3 w-3" />
-    ) : (
-      <ChevronDown className="inline h-3 w-3" />
-    );
-  }
-
   return (
     <div>
       <h2 className="text-2xl font-semibold mb-6">Events</h2>
@@ -83,18 +74,18 @@ export default function Events() {
           <thead>
             <tr className="border-b border-border bg-muted/50">
               <Th field="timestamp" label="Time" sort={sort} toggleSort={toggleSort}>
-                <SortIcon field="timestamp" />
+                <SortIcon field="timestamp" sort={sort} order={order} />
               </Th>
               <Th field="os_username" label="User" sort={sort} toggleSort={toggleSort}>
-                <SortIcon field="os_username" />
+                <SortIcon field="os_username" sort={sort} order={order} />
               </Th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Machine</th>
               <Th field="provider" label="Provider" sort={sort} toggleSort={toggleSort}>
-                <SortIcon field="provider" />
+                <SortIcon field="provider" sort={sort} order={order} />
               </Th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Host</th>
               <Th field="process_name" label="Tool" sort={sort} toggleSort={toggleSort}>
-                <SortIcon field="process_name" />
+                <SortIcon field="process_name" sort={sort} order={order} />
               </Th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">OS</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Detection</th>
@@ -153,6 +144,23 @@ export default function Events() {
         </div>
       )}
     </div>
+  );
+}
+
+function SortIcon({
+  field,
+  sort,
+  order,
+}: {
+  field: SortField;
+  sort: SortField;
+  order: "asc" | "desc";
+}) {
+  if (sort !== field) return null;
+  return order === "asc" ? (
+    <ChevronUp className="inline h-3 w-3" />
+  ) : (
+    <ChevronDown className="inline h-3 w-3" />
   );
 }
 

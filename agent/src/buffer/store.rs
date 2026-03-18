@@ -3,6 +3,15 @@ use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
 
+/// Default maximum number of events to keep in the SQLite buffer.
+/// 10,000 events at ~500 bytes each ≈ 5 MB, reasonable for extended offline periods
+/// while preventing unbounded disk growth on machines that run offline for weeks.
+pub(crate) const DEFAULT_MAX_BUFFER_EVENTS: usize = 10_000;
+
+/// Number of oldest events to drop in a single eviction batch when the buffer
+/// exceeds the max size. Dropping in batches avoids per-insert overhead.
+const EVICTION_BATCH_SIZE: usize = 500;
+
 /// SQLite-backed event buffer for the HTTP sink.
 ///
 /// Events are written immediately on capture (< 1ms). A background task drains
@@ -13,12 +22,16 @@ use std::sync::Mutex;
 /// this module is not used.
 pub struct EventBuffer {
     conn: Mutex<Connection>,
+    max_events: usize,
 }
 
 impl EventBuffer {
     /// Open or create the SQLite buffer database at the given path.
     /// Creates the `events` table if it does not already exist.
-    pub fn open(path: &Path) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn open(
+        path: &Path,
+        max_events: usize,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -32,16 +45,33 @@ impl EventBuffer {
         )?;
         Ok(Self {
             conn: Mutex::new(conn),
+            max_events,
         })
     }
 
     /// Insert an event into the buffer. Fast (< 1ms).
+    /// If the buffer exceeds max_events, the oldest events are dropped first.
     pub fn insert(
         &self,
         event: &AiConnectionEvent,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let json = serde_json::to_string(event)?;
         let conn = self.conn.lock().map_err(|e| format!("lock: {e}"))?;
+
+        // Enforce buffer size limit by evicting oldest events.
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
+        if count as usize >= self.max_events {
+            let to_drop = EVICTION_BATCH_SIZE.min(count as usize);
+            conn.execute(
+                "DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY id LIMIT ?1)",
+                params![to_drop as i64],
+            )?;
+            eprintln!(
+                "[ai-ranger] Buffer full ({} events, max {}). Dropped {} oldest events.",
+                count, self.max_events, to_drop
+            );
+        }
+
         conn.execute("INSERT INTO events (json) VALUES (?1)", params![json])?;
         Ok(())
     }
@@ -97,16 +127,24 @@ impl EventBuffer {
 
 /// Open the SQLite event buffer if HTTP output is configured.
 /// Returns None if HTTP output is not active or if the database cannot be opened.
-pub(crate) fn open_if_needed(has_http: bool) -> Option<std::sync::Arc<EventBuffer>> {
+pub(crate) fn open_if_needed(
+    has_http: bool,
+    max_events: Option<usize>,
+) -> Option<std::sync::Arc<EventBuffer>> {
     if !has_http {
         return None;
     }
+    let max = max_events.unwrap_or(DEFAULT_MAX_BUFFER_EVENTS);
     let path = crate::identity::config::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("buffer.db");
-    match EventBuffer::open(&path) {
+    match EventBuffer::open(&path, max) {
         Ok(buf) => {
-            eprintln!("[ai-ranger] SQLite buffer active at {}", path.display());
+            eprintln!(
+                "[ai-ranger] SQLite buffer active at {} (max {} events)",
+                path.display(),
+                max
+            );
             Some(std::sync::Arc::new(buf))
         }
         Err(e) => {
@@ -143,7 +181,7 @@ mod tests {
 
     #[test]
     fn insert_and_read() {
-        let buf = EventBuffer::open(Path::new(":memory:")).unwrap();
+        let buf = EventBuffer::open(Path::new(":memory:"), DEFAULT_MAX_BUFFER_EVENTS).unwrap();
         let event = test_event();
         buf.insert(&event).unwrap();
         buf.insert(&event).unwrap();
@@ -156,7 +194,7 @@ mod tests {
 
     #[test]
     fn delete_batch() {
-        let buf = EventBuffer::open(Path::new(":memory:")).unwrap();
+        let buf = EventBuffer::open(Path::new(":memory:"), DEFAULT_MAX_BUFFER_EVENTS).unwrap();
         let event = test_event();
         buf.insert(&event).unwrap();
         buf.insert(&event).unwrap();
@@ -171,7 +209,7 @@ mod tests {
 
     #[test]
     fn read_respects_limit() {
-        let buf = EventBuffer::open(Path::new(":memory:")).unwrap();
+        let buf = EventBuffer::open(Path::new(":memory:"), DEFAULT_MAX_BUFFER_EVENTS).unwrap();
         let event = test_event();
         for _ in 0..10 {
             buf.insert(&event).unwrap();
@@ -183,7 +221,7 @@ mod tests {
     #[test]
     fn roundtrip_serialization() {
         // Verifies the buffer drain path: event → JSON → SQLite → JSON → event
-        let buf = EventBuffer::open(Path::new(":memory:")).unwrap();
+        let buf = EventBuffer::open(Path::new(":memory:"), DEFAULT_MAX_BUFFER_EVENTS).unwrap();
         let event = test_event();
         buf.insert(&event).unwrap();
 

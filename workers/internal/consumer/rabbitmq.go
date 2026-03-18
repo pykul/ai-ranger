@@ -15,26 +15,60 @@ import (
 	rangerpb "github.com/pykul/ai-ranger/proto/gen/go/ranger/v1"
 )
 
-// connectRetryIntervalSecs is the delay between RabbitMQ connection attempts.
+// connectRetryIntervalSecs is the initial delay between RabbitMQ connection attempts.
 const connectRetryIntervalSecs = 3
 
+// maxReconnectBackoffSecs caps the exponential backoff for reconnection attempts.
+const maxReconnectBackoffSecs = 60
+
+// reconnectBackoffMultiplier is the multiplier for exponential backoff.
+const reconnectBackoffMultiplier = 2
+
 // Start connects to RabbitMQ and consumes from the ingest queue.
-// Blocks until the channel is closed or an error occurs.
+// Automatically reconnects if the connection drops after initial connect.
+// Blocks indefinitely until an unrecoverable error occurs.
 func Start(url string, chWriter *writer.ClickHouseWriter, pgWriter *writer.PostgresWriter) error {
-	conn, err := dialWithRetry(url)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
+	for {
+		conn, err := dialWithRetry(url)
+		if err != nil {
+			return err
+		}
 
-	msgs, err := setupChannel(conn)
-	if err != nil {
-		return err
-	}
+		msgs, err := setupChannel(conn)
+		if err != nil {
+			conn.Close()
+			return err
+		}
 
-	log.Printf("[ingest] Consuming from %s", constants.RabbitMQQueue)
-	consumeMessages(msgs, chWriter, pgWriter)
-	return nil
+		// Watch for connection close events to trigger reconnection.
+		connClose := make(chan *amqp.Error, 1)
+		conn.NotifyClose(connClose)
+
+		log.Printf("[ingest] Consuming from %s", constants.RabbitMQQueue)
+		done := make(chan struct{})
+		go func() {
+			consumeMessages(msgs, chWriter, pgWriter)
+			close(done)
+		}()
+
+		// Wait for either the consumer to finish or the connection to drop.
+		select {
+		case amqpErr := <-connClose:
+			if amqpErr != nil {
+				log.Printf("[ingest] RabbitMQ connection lost: %v, reconnecting...", amqpErr)
+			} else {
+				log.Printf("[ingest] RabbitMQ connection closed, reconnecting...")
+			}
+			conn.Close()
+		case <-done:
+			// msgs channel was closed without a connection error — reconnect.
+			log.Printf("[ingest] Consumer channel closed, reconnecting...")
+			conn.Close()
+		}
+
+		// Brief pause before reconnecting to avoid tight loops.
+		time.Sleep(time.Duration(connectRetryIntervalSecs) * time.Second)
+	}
 }
 
 // dialWithRetry attempts to connect to RabbitMQ up to MaxRetries times.

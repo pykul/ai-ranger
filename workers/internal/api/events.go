@@ -37,7 +37,7 @@ func eventsList(chStore *store.ClickHouseStore) http.HandlerFunc {
 
 		result, err := chStore.GetEvents(r.Context(), search, days, page, limit, sort, order)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, result)

@@ -15,7 +15,7 @@ func tokenList(pgStore *store.PostgresStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tokens, err := pgStore.ListTokens()
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, tokens)
@@ -70,7 +70,7 @@ func tokenCreate(pgStore *store.PostgresStore) http.HandlerFunc {
 		}
 
 		if err := pgStore.CreateToken(token); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 
@@ -100,7 +100,7 @@ func tokenDelete(pgStore *store.PostgresStore) http.HandlerFunc {
 			return
 		}
 		if err := pgStore.DeleteToken(id); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -126,7 +126,7 @@ func agentRevoke(pgStore *store.PostgresStore) http.HandlerFunc {
 			return
 		}
 		if err := pgStore.RevokeAgent(id); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

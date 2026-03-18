@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import ProviderIcon from "@/components/ProviderIcon";
 import {
   LineChart,
   Line,
@@ -165,8 +166,9 @@ export default function Overview() {
               <div key={p.provider} className="flex justify-between items-center">
                 <button
                   onClick={() => handleProviderClick(p.provider)}
-                  className="text-sm hover:underline text-left"
+                  className="text-sm hover:underline text-left inline-flex items-center gap-2"
                 >
+                  <ProviderIcon provider={p.provider} />
                   {formatProvider(p.provider)}
                 </button>
                 <span className="text-sm text-muted-foreground">

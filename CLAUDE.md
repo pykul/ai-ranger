@@ -54,6 +54,10 @@ The agent is fully standalone by default - it outputs JSON events to stdout with
 
 **Full system**: Agent → FastAPI Gateway → RabbitMQ → Go Workers → ClickHouse/Postgres → React Dashboard. All traffic enters through nginx. See ARCHITECTURE.md for details.
 
+## Git Workflow
+
+- **Never push directly to main.** Always create a feature branch and push that. Only push to main if explicitly instructed to do so.
+
 ## Key Constraints
 
 - **Every component must have a Makefile.** If creating a new component, create its Makefile first.

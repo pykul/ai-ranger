@@ -14,6 +14,8 @@ workers/bin/
 # Node
 node_modules/
 dashboard/dist/
+dashboard/index.html
+*.tsbuildinfo
 
 # Secrets and local config — never commit
 .env

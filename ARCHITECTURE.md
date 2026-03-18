@@ -1961,7 +1961,6 @@ via `env_file` and `${VAR}` interpolation. No credentials are hardcoded in the c
 | `RABBITMQ_DEFAULT_USER` | Used only to construct `RABBITMQ_URL`. Actual broker credentials are in `definitions.json` and must match |
 | `RABBITMQ_DEFAULT_PASS` | Used only to construct `RABBITMQ_URL`. Actual broker credentials are in `definitions.json` and must match |
 
-
 ---
 
 ## Testing Strategy
@@ -2003,7 +2002,6 @@ See `tests/README.md` for details on test layers and adding new tests.
 ### CI
 
 Integration tests run automatically in CI after component builds pass:
-
 
 - **Linux** (`integration-tests` job): Runs `make test-integration` which executes
   the full suite — synthetic, real agent, dashboard, and pipeline tests. GitHub

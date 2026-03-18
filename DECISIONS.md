@@ -833,7 +833,6 @@ password resets is out of scope for Phase 3. The reasoning:
   cheap. Requiring admins to pre-hash their password adds unnecessary friction
   and tooling requirements (htpasswd, bcrypt CLI) with no security benefit
   since transport is HTTPS and the environment variable is already a secret.
-
 - **Reversible.** If real demand emerges for multi-user access (e.g. read-only
   viewers, per-team scoping), a users table can be added in a future phase. The
   JWT infrastructure built now carries forward unchanged: the only change is

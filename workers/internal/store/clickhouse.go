@@ -18,6 +18,10 @@ const maxProviderResults = 50
 // maxTimeseriesBuckets caps the number of timeseries buckets returned.
 const maxTimeseriesBuckets = 1000
 
+// eventsQueryTimeout is the maximum duration for events queries.
+// Prevents pathological wildcard searches from hanging indefinitely on large datasets.
+const eventsQueryTimeout = 30 * time.Second
+
 // ClickHouseStore provides read queries against the ai_events table.
 type ClickHouseStore struct {
 	conn clickhouse.Conn
@@ -199,6 +203,9 @@ type EventsResult struct {
 
 // GetEvents returns paginated raw events with optional search and time filter.
 func (s *ClickHouseStore) GetEvents(ctx context.Context, q string, days, page, limit int, sort, order string) (*EventsResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, eventsQueryTimeout)
+	defer cancel()
+
 	// Validate sort column to prevent injection (only table names use fmt.Sprintf).
 	sortCol := "timestamp"
 	switch sort {

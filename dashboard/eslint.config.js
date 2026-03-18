@@ -16,7 +16,7 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": [
         "warn",
-        { allowConstantExport: true, allowExportNames: ["useAuth", "useTimeRange"] },
+        { allowConstantExport: true, allowExportNames: ["useAuth", "useTimeRange", "generatePageNumbers", "PaginationBar"] },
       ],
     },
   }

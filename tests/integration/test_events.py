@@ -124,3 +124,136 @@ def test_events_sort_ascending(
     if len(data["events"]) >= 2:
         timestamps = [e["timestamp"] for e in data["events"]]
         assert timestamps == sorted(timestamps), "Events not in ascending order"
+
+
+def test_events_search_total_reflects_filtered_count(
+    gateway_api, enrolled_agent, api_server, clickhouse_client
+):
+    """Search total reflects only matching events, not all events."""
+    agent_id = enrolled_agent["agent_id"]
+    _ingest_test_events(gateway_api, agent_id)
+    wait_for_clickhouse_event(clickhouse_client, agent_id, "openai")
+
+    def has_events():
+        resp = api_server.events(days=7)
+        return resp.status_code == 200 and resp.json().get("total", 0) >= 3
+
+    wait_for_condition(has_events, timeout_secs=15, description="all events ingested")
+
+    all_resp = api_server.events(days=7)
+    openai_resp = api_server.events(q="openai", days=7)
+    all_total = all_resp.json()["total"]
+    openai_total = openai_resp.json()["total"]
+    assert openai_total < all_total, (
+        f"Filtered total ({openai_total}) should be less than all ({all_total})"
+    )
+
+
+def test_events_page2_returns_offset_results(
+    gateway_api, enrolled_agent, api_server, clickhouse_client
+):
+    """Page 2 returns different events than page 1."""
+    agent_id = enrolled_agent["agent_id"]
+    _ingest_test_events(gateway_api, agent_id)
+    wait_for_clickhouse_event(clickhouse_client, agent_id, "openai")
+
+    def has_events():
+        resp = api_server.events(days=7)
+        return resp.status_code == 200 and resp.json().get("total", 0) >= 2
+
+    wait_for_condition(has_events, timeout_secs=15, description="events ingested")
+
+    page1 = api_server.events(days=7, page=1, limit=1).json()
+    page2 = api_server.events(days=7, page=2, limit=1).json()
+    assert page1["page"] == 1
+    assert page2["page"] == 2
+    if page1["events"] and page2["events"]:
+        assert page1["events"][0]["timestamp"] != page2["events"][0]["timestamp"] or \
+            page1["events"][0]["provider"] != page2["events"][0]["provider"], \
+            "Page 1 and page 2 returned identical events"
+
+
+def test_events_limit_10(
+    gateway_api, enrolled_agent, api_server, clickhouse_client
+):
+    """Limit=10 returns at most 10 events."""
+    agent_id = enrolled_agent["agent_id"]
+    _ingest_test_events(gateway_api, agent_id)
+    wait_for_clickhouse_event(clickhouse_client, agent_id, "openai")
+
+    def has_events():
+        resp = api_server.events(days=7, limit=1)
+        return resp.status_code == 200 and resp.json().get("total", 0) > 0
+
+    wait_for_condition(has_events, timeout_secs=15, description="events ingested")
+
+    resp = api_server.events(days=7, page=1, limit=10)
+    data = resp.json()
+    assert data["limit"] == 10
+    assert len(data["events"]) <= 10
+
+
+def test_events_limit_100(
+    gateway_api, enrolled_agent, api_server, clickhouse_client
+):
+    """Limit=100 is accepted and capped at 100."""
+    agent_id = enrolled_agent["agent_id"]
+    _ingest_test_events(gateway_api, agent_id)
+    wait_for_clickhouse_event(clickhouse_client, agent_id, "openai")
+
+    def has_events():
+        resp = api_server.events(days=7, limit=1)
+        return resp.status_code == 200 and resp.json().get("total", 0) > 0
+
+    wait_for_condition(has_events, timeout_secs=15, description="events ingested")
+
+    resp = api_server.events(days=7, page=1, limit=100)
+    data = resp.json()
+    assert data["limit"] == 100
+
+
+def test_events_out_of_range_page_returns_empty(
+    gateway_api, enrolled_agent, api_server, clickhouse_client
+):
+    """An out-of-range page returns empty events array with correct total."""
+    agent_id = enrolled_agent["agent_id"]
+    _ingest_test_events(gateway_api, agent_id)
+    wait_for_clickhouse_event(clickhouse_client, agent_id, "openai")
+
+    def has_events():
+        resp = api_server.events(days=7)
+        return resp.status_code == 200 and resp.json().get("total", 0) > 0
+
+    wait_for_condition(has_events, timeout_secs=15, description="events ingested")
+
+    resp = api_server.events(days=7, page=9999, limit=25)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] > 0, "Total should still reflect actual count"
+    assert data["events"] is None or len(data["events"]) == 0
+
+
+def test_events_search_with_pagination(
+    gateway_api, enrolled_agent, api_server, clickhouse_client
+):
+    """Search combined with pagination returns consistent results."""
+    agent_id = enrolled_agent["agent_id"]
+    _ingest_test_events(gateway_api, agent_id)
+    wait_for_clickhouse_event(clickhouse_client, agent_id, "openai")
+
+    def search_ready():
+        resp = api_server.events(q="openai", days=7)
+        return resp.status_code == 200 and resp.json().get("total", 0) > 0
+
+    wait_for_condition(search_ready, timeout_secs=15, description="search ready")
+
+    page1 = api_server.events(q="openai", days=7, page=1, limit=1)
+    data = page1.json()
+    assert data["total"] > 0
+    assert len(data["events"]) <= 1
+    for event in data["events"]:
+        fields = [
+            event.get("provider", ""),
+            event.get("provider_host", ""),
+        ]
+        assert any("openai" in f.lower() for f in fields)

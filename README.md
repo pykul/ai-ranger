@@ -175,6 +175,24 @@ to a platform-specific config directory and reused automatically:
 - macOS: `~/Library/Application Support/ai-ranger/config.json`
 - Windows: `%APPDATA%\ai-ranger\config.json`
 
+**If the agent says "already enrolled" but events do not appear in the dashboard,**
+the saved config is stale. This happens when the backend database is reset (e.g.
+`make dev-reset`) while the agent still has credentials from a previous run. Delete
+the config file and re-enroll:
+
+```bash
+# Linux
+rm ~/.config/ai-ranger/config.json
+
+# macOS
+rm ~/Library/Application\ Support/ai-ranger/config.json
+
+# Windows (PowerShell)
+Remove-Item "$env:APPDATA\ai-ranger\config.json"
+```
+
+Then restart the agent with `--token` and `--backend` as shown above.
+
 ### 3. Verify end-to-end
 
 In another terminal, trigger some AI provider traffic:
@@ -424,8 +442,9 @@ managed via Alembic migrations. ClickHouse holds the event timeseries. The full
 stack starts with `make dev`.
 
 When the backend sink is configured, the agent buffers events locally in SQLite and
-uploads batches every 30 seconds. If the backend is unreachable, events accumulate
-locally and are delivered when the connection recovers.
+uploads them within seconds. Events typically appear in the dashboard under 1 second
+after capture. If the backend is unreachable, events accumulate locally and are
+delivered when the connection recovers.
 
 For the complete technical design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 

@@ -956,3 +956,21 @@ The fix: `definitions.json.template` with `${RABBITMQ_DEFAULT_USER}` and
 docker-compose. The old `definitions.json` with hardcoded credentials was deleted.
 Credentials are now controlled entirely by the env vars in `.env`.
 
+### Event batching tuned for sub-second dashboard latency
+
+The original batching defaults were designed for a hypothetical high-volume
+enterprise fleet: 30-second drain interval, 100-event HTTP batch size. In practice,
+a developer generating a handful of events during local testing had to wait up to
+30 seconds to see anything in the dashboard. This made the development loop feel
+broken even though the pipeline was working correctly.
+
+New defaults: the SQLite buffer drains every 1 second (configurable via
+`drain_interval_secs` in config.toml), the HTTP batch flushes at 10 events instead
+of 100, and a 500ms background flush timer sends any events sitting in the batch
+buffer regardless of count. Under typical developer load, events appear in the
+dashboard within 1 second of capture.
+
+The tradeoff is more frequent HTTP requests to the gateway. A developer machine
+generating 10-50 events per minute produces at most one request per second, which
+the gateway handles trivially. For high-volume deployments that want larger batches
+and less frequent uploads, the drain interval and batch size are configurable.

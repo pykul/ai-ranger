@@ -654,9 +654,9 @@ mode = "dns-sni"
 providers_url = "https://raw.githubusercontent.com/pykul/ai-ranger/main/providers/providers.toml"
 
 # ── Tuning parameters (all optional, defaults shown) ──────────────────────
-# drain_interval_secs = 30          # How often the SQLite buffer uploads to the backend (seconds)
+# drain_interval_secs = 1           # How often the SQLite buffer uploads to the backend (seconds)
 # drain_batch_size = 500            # Maximum events per upload batch
-# http_batch_size = 100             # Maximum events buffered per HTTP sink flush
+# http_batch_size = 10              # Maximum events buffered per HTTP sink flush
 # webhook_batch_size = 100          # Default maximum events buffered per webhook sink flush
 # providers_fetch_timeout_secs = 10 # Timeout for fetching providers.toml from URL (seconds)
 # max_buffer_events = 10000         # Max events in SQLite buffer before oldest are dropped
@@ -1339,6 +1339,25 @@ POST /v1/auth/login           -> authenticate, returns JWT + refresh token
 POST /v1/auth/refresh         -> exchange refresh token for new JWT
 ```
 
+### Events endpoint details
+
+`GET /v1/events` uses a two-query pagination pattern against ClickHouse:
+
+1. A `SELECT count()` with the same WHERE clause (including search ILIKE filters)
+   to get the total number of matching events. This is returned as `total` in the
+   response and drives the pagination controls.
+2. A `SELECT ... LIMIT ? OFFSET ?` to fetch the actual page of data.
+
+Both queries share a 30-second context timeout. A pathological wildcard search on
+a large dataset times out with an error rather than hanging indefinitely.
+
+Search uses parameterized ILIKE across: `provider`, `provider_host`, `process_name`,
+`hostname` (machine), `os_username`, `src_ip`.
+
+Page size options accepted by the API: 10, 25, 50, 100 (capped at 100). The
+dashboard reflects these as `?q=term&page=2&limit=50` URL parameters that can be
+shared or bookmarked.
+
 ---
 
 ## Dashboard Views
@@ -1379,19 +1398,27 @@ POST /v1/auth/refresh         -> exchange refresh token for new JWT
 ## Local Buffer & Upload Logic (Agent)
 
 The agent writes events to a local SQLite database immediately on capture.
-A background async task drains the buffer every 30 seconds.
+A background drain task reads the buffer every second (configurable via
+`drain_interval_secs`). A separate 500ms flush timer ensures events sitting
+in the HTTP batch are sent promptly even when the batch size threshold (10
+events) has not been reached. Under typical developer load, events appear
+in the dashboard within 1 second of capture.
 Network outages do not lose data. Backend restarts do not matter.
 
 ```
 Capture event
     -> write to SQLite immediately (< 1ms, non-blocking)
 
-Every 30s:
+Every 1s (drain loop):
     -> read up to 500 events from SQLite
     -> serialize to protobuf EventBatch
     -> POST to gateway with agent_id Bearer auth
     -> on 2xx: mark events as uploaded, delete from SQLite
     -> on failure: leave in SQLite, retry next cycle (exponential backoff)
+
+Every 500ms (flush timer):
+    -> flush any events sitting in the HTTP batch buffer
+    -> no-op if the batch is empty
 ```
 
 SQLite buffer is only active when an HTTP output sink is configured.

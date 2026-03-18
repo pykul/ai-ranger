@@ -6,8 +6,9 @@ use prost::Message;
 use tokio::sync::Mutex;
 
 /// Default number of events to buffer before flushing to the HTTP backend.
-/// 100 balances memory usage against the overhead of small HTTP requests.
-pub(crate) const DEFAULT_HTTP_BATCH_SIZE: usize = 100;
+/// 10 keeps latency low for light-traffic developer machines. The 500ms flush
+/// timer in main.rs ensures events are sent even when this threshold is not reached.
+pub(crate) const DEFAULT_HTTP_BATCH_SIZE: usize = 10;
 
 /// Content-Type header value for protobuf payloads.
 const CONTENT_TYPE_PROTOBUF: &str = "application/x-protobuf";

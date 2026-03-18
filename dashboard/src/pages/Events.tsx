@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Search, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from "lucide-react";
 import { useTimeRange } from "@/hooks/use-time-range";
 import { useEvents } from "@/hooks/use-events";
@@ -8,15 +9,167 @@ import type { EventRow } from "@/lib/types";
 
 type SortField = "timestamp" | "os_username" | "provider" | "process_name";
 
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+const DEFAULT_LIMIT = 25;
+const DEFAULT_SORT: SortField = "timestamp";
+const DEFAULT_ORDER: "asc" | "desc" = "desc";
+const MAX_VISIBLE_PAGES = 7;
+
+function isSortField(value: string): value is SortField {
+  return ["timestamp", "os_username", "provider", "process_name"].includes(value);
+}
+
+function isOrder(value: string): value is "asc" | "desc" {
+  return value === "asc" || value === "desc";
+}
+
+function isValidLimit(value: number): boolean {
+  return (PAGE_SIZE_OPTIONS as readonly number[]).includes(value);
+}
+
+/**
+ * Generate an array of page numbers to display in the pagination bar.
+ * Uses -1 as a sentinel value for ellipsis positions.
+ */
+export function generatePageNumbers(currentPage: number, totalPages: number): number[] {
+  if (totalPages <= MAX_VISIBLE_PAGES) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+
+  const pages = new Set<number>();
+  pages.add(1);
+  pages.add(totalPages);
+  pages.add(currentPage);
+  if (currentPage > 1) pages.add(currentPage - 1);
+  if (currentPage < totalPages) pages.add(currentPage + 1);
+
+  const sorted = Array.from(pages).sort((a, b) => a - b);
+
+  // Insert ellipsis sentinels (-1) where there are gaps
+  const result: number[] = [];
+  let prev = 0;
+  for (const p of sorted) {
+    if (prev > 0 && p - prev > 1) {
+      result.push(-1);
+    }
+    result.push(p);
+    prev = p;
+  }
+
+  return result;
+}
+
+interface PaginationBarProps {
+  page: number;
+  totalPages: number;
+  total: number;
+  limit: number;
+  onPageChange: (page: number) => void;
+  onLimitChange: (limit: number) => void;
+}
+
+export function PaginationBar({ page, totalPages, total, limit, onPageChange, onLimitChange }: PaginationBarProps) {
+  const pageNumbers = generatePageNumbers(page, totalPages);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+      {/* Left: page size selector and total count */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <label htmlFor="page-size" className="whitespace-nowrap">Rows per page:</label>
+          <select
+            id="page-size"
+            value={limit}
+            onChange={(e) => onLimitChange(Number(e.target.value))}
+            className="rounded border border-border bg-card px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </div>
+        <span>{total.toLocaleString()} events</span>
+      </div>
+
+      {/* Right: page navigation buttons */}
+      {totalPages > 1 && (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onPageChange(page - 1)}
+            disabled={page <= 1}
+            className="p-1.5 rounded border border-border hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Previous page"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+
+          {pageNumbers.map((pageNum, idx) =>
+            pageNum === -1 ? (
+              <span key={`ellipsis-${idx}`} className="px-1.5 py-1 text-muted-foreground select-none">
+                ...
+              </span>
+            ) : (
+              <button
+                key={pageNum}
+                onClick={() => onPageChange(pageNum)}
+                className={cn(
+                  "min-w-[2rem] px-2 py-1 rounded border text-sm",
+                  pageNum === page
+                    ? "border-ring bg-muted font-medium text-foreground"
+                    : "border-border hover:bg-muted text-muted-foreground"
+                )}
+              >
+                {pageNum}
+              </button>
+            )
+          )}
+
+          <button
+            onClick={() => onPageChange(page + 1)}
+            disabled={page >= totalPages}
+            className="p-1.5 rounded border border-border hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Next page"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Events() {
   const { days } = useTimeRange();
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [sort, setSort] = useState<SortField>("timestamp");
-  const [order, setOrder] = useState<"asc" | "desc">("desc");
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Initialize state from URL query params with fallback defaults
+  const initialPage = Math.max(1, Number(searchParams.get("page")) || 1);
+  const initialLimitParam = Number(searchParams.get("limit"));
+  const initialLimit = isValidLimit(initialLimitParam) ? initialLimitParam : DEFAULT_LIMIT;
+  const initialSort = isSortField(searchParams.get("sort") || "") ? (searchParams.get("sort") as SortField) : DEFAULT_SORT;
+  const initialOrder = isOrder(searchParams.get("order") || "") ? (searchParams.get("order") as "asc" | "desc") : DEFAULT_ORDER;
+  const initialQuery = searchParams.get("q") || "";
+
+  const [search, setSearch] = useState(initialQuery);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialQuery);
+  const [page, setPage] = useState(initialPage);
+  const [limit, setLimit] = useState(initialLimit);
+  const [sort, setSort] = useState<SortField>(initialSort);
+  const [order, setOrder] = useState<"asc" | "desc">(initialOrder);
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
-  const limit = 25;
+
+  // Sync state changes back to URL query params
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    if (page !== 1) params.set("page", String(page));
+    if (limit !== DEFAULT_LIMIT) params.set("limit", String(limit));
+    if (sort !== DEFAULT_SORT) params.set("sort", sort);
+    if (order !== DEFAULT_ORDER) params.set("order", order);
+    setSearchParams(params, { replace: true });
+  }, [debouncedSearch, page, limit, sort, order, setSearchParams]);
 
   // Simple debounce via timeout ref
   const [timer, setTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
@@ -40,7 +193,8 @@ export default function Events() {
     order,
   });
 
-  const totalPages = events.data ? Math.ceil(events.data.total / limit) : 0;
+  const total = events.data?.total ?? 0;
+  const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
 
   function toggleSort(field: SortField) {
     if (sort === field) {
@@ -52,12 +206,23 @@ export default function Events() {
     setPage(1);
   }
 
+  const handlePageChange = useCallback((newPage: number) => {
+    setPage(Math.max(1, Math.min(newPage, totalPages || 1)));
+    setExpandedRow(null);
+  }, [totalPages]);
+
+  const handleLimitChange = useCallback((newLimit: number) => {
+    setLimit(newLimit);
+    setPage(1);
+    setExpandedRow(null);
+  }, []);
+
   return (
     <div>
       <h2 className="text-2xl font-semibold mb-6">Events</h2>
 
       {/* Search bar */}
-      <div className="relative mb-6">
+      <div className="relative mb-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
           type="text"
@@ -65,6 +230,18 @@ export default function Events() {
           onChange={(e) => handleSearch(e.target.value)}
           placeholder="Search by provider, user, machine, process, IP address..."
           className="w-full rounded-lg border border-border bg-card pl-10 pr-4 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+        />
+      </div>
+
+      {/* Top pagination bar */}
+      <div className="mb-4">
+        <PaginationBar
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          limit={limit}
+          onPageChange={handlePageChange}
+          onLimitChange={handleLimitChange}
         />
       </div>
 
@@ -119,30 +296,17 @@ export default function Events() {
         </table>
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
-          <span>
-            Page {page} of {totalPages} ({events.data?.total.toLocaleString()} events)
-          </span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="p-1.5 rounded border border-border hover:bg-muted disabled:opacity-30"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-              className="p-1.5 rounded border border-border hover:bg-muted disabled:opacity-30"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Bottom pagination bar */}
+      <div className="mt-4">
+        <PaginationBar
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          limit={limit}
+          onPageChange={handlePageChange}
+          onLimitChange={handleLimitChange}
+        />
+      </div>
     </div>
   );
 }

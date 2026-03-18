@@ -11,6 +11,17 @@ import (
 	"github.com/pykul/ai-ranger/workers/internal/store"
 )
 
+func tokenList(pgStore *store.PostgresStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokens, err := pgStore.ListTokens()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, tokens)
+	}
+}
+
 // TokenCreateRequest is the JSON body for creating an enrollment token.
 type TokenCreateRequest struct {
 	OrgID    string  `json:"org_id"`

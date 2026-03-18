@@ -47,8 +47,10 @@ func NewRouter(pg *gorm.DB, ch clickhouse.Conn, cfg config.Config) chi.Router {
 		r.Get(constants.RouteDashboardUsers, dashboardUsers(chStore))
 		r.Get(constants.RouteDashboardTraffic, dashboardTraffic(chStore))
 		r.Get(constants.RouteDashboardFleet, fleetList(pgStore))
+		r.Get(constants.RouteEvents, eventsList(chStore))
 
 		// Admin endpoints
+		r.Get(constants.RouteAdminTokensCreate, tokenList(pgStore))
 		r.Post(constants.RouteAdminTokensCreate, tokenCreate(pgStore))
 		r.Delete(constants.RouteAdminTokensDelete, tokenDelete(pgStore))
 		r.Delete(constants.RouteAdminAgentsDelete, agentRevoke(pgStore))

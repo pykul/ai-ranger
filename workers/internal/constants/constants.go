@@ -47,6 +47,9 @@ const RouteDashboardTraffic = "/v1/dashboard/traffic/timeseries"
 // RouteDashboardFleet returns all enrolled agents and status.
 const RouteDashboardFleet = "/v1/dashboard/fleet"
 
+// RouteEvents returns paginated raw events with search.
+const RouteEvents = "/v1/events"
+
 // RouteAdminTokensCreate creates a new enrollment token.
 const RouteAdminTokensCreate = "/v1/admin/tokens"
 

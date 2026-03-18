@@ -54,6 +54,7 @@ func (w *ClickHouseWriter) insertClickHouseEvents(batch *rangerpb.EventBatch) (u
 			orgID, parsed, e.MachineHostname, e.OsUsername, e.OsType,
 			time.UnixMilli(e.TimestampMs), e.Provider, e.ProviderHost,
 			stringOrEmpty(e.ModelHint), e.ProcessName, stringOrEmpty(e.ProcessPath),
+			e.SrcIp,
 			detectionMethodString(e.DetectionMethod), captureModeString(e.CaptureMode),
 		); err != nil {
 			return uuid.Nil, fmt.Errorf("append to clickhouse batch: %w", err)

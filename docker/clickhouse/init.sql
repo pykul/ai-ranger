@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS ai_events (
     model_hint      LowCardinality(String),
     process_name    LowCardinality(String),
     process_path    String,
+    src_ip          String,
     detection_method Enum8('sni'=1, 'dns'=2, 'ip_range'=3, 'tcp_heuristic'=4),
     capture_mode    Enum8('dns_sni'=1, 'mitm'=2)
 )

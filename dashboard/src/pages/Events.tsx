@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import ProviderIcon from "@/components/ProviderIcon";
 import { useSearchParams } from "react-router-dom";
 import { Search, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from "lucide-react";
 import { useTimeRange } from "@/hooks/use-time-range";
@@ -377,7 +378,12 @@ function EventRowComponent({
         <td className="px-4 py-3 text-muted-foreground">{timeAgo(event.timestamp)}</td>
         <td className="px-4 py-3">{event.os_username}</td>
         <td className="px-4 py-3 text-muted-foreground">{event.machine_hostname}</td>
-        <td className="px-4 py-3">{formatProvider(event.provider)}</td>
+        <td className="px-4 py-3">
+          <span className="inline-flex items-center gap-1.5">
+            <ProviderIcon provider={event.provider} />
+            {formatProvider(event.provider)}
+          </span>
+        </td>
         <td className="px-4 py-3 text-muted-foreground">{event.provider_host}</td>
         <td className="px-4 py-3">{formatProcess(event.process_name)}</td>
         <td className="px-4 py-3">

@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import ProviderIcon from "@/components/ProviderIcon";
 import {
   LineChart,
   Line,
@@ -22,37 +23,44 @@ export default function Overview() {
   const users = useUsers(days, selectedProvider);
   const traffic = useTraffic(days);
 
-  // Build chart data: either aggregated total or split by provider.
+  // Build chart data: always per-provider lines with different colors.
+  // When a provider is selected, only that provider's line is shown.
   const chartData = useMemo(() => {
     if (!traffic.data || traffic.data.length === 0) return [];
 
     const byTime = new Map<string, Record<string, number>>();
     for (const pt of traffic.data) {
+      if (selectedProvider && pt.provider !== selectedProvider) continue;
       const key = new Date(pt.timestamp).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
       });
       if (!byTime.has(key)) byTime.set(key, {});
       const row = byTime.get(key)!;
-
-      if (selectedProvider) {
-        // Split view: individual provider lines
-        const name = formatProvider(pt.provider);
-        row[name] = (row[name] ?? 0) + pt.connections;
-      } else {
-        // Default: single aggregated total
-        row["Total"] = (row["Total"] ?? 0) + pt.connections;
-      }
+      const name = formatProvider(pt.provider);
+      row[name] = (row[name] ?? 0) + pt.connections;
     }
     return Array.from(byTime.entries()).map(([time, data]) => ({ time, ...data }));
   }, [traffic.data, selectedProvider]);
 
-  const chartLines = useMemo(() => {
-    if (selectedProvider) {
-      if (!providers.data) return [];
-      return providers.data.map((p) => formatProvider(p.provider));
+  // Stable color assignment: each provider always gets the same color based on
+  // its rank in the full (unfiltered) provider list.
+  const providerColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (providers.data) {
+      providers.data.forEach((p, i) => {
+        map.set(formatProvider(p.provider), PROVIDER_COLORS[i % PROVIDER_COLORS.length] ?? TOTAL_LINE_COLOR);
+      });
     }
-    return ["Total"];
+    return map;
+  }, [providers.data]);
+
+  const chartLines = useMemo(() => {
+    if (!providers.data) return [];
+    const list = selectedProvider
+      ? providers.data.filter((p) => p.provider === selectedProvider)
+      : providers.data;
+    return list.map((p) => formatProvider(p.provider));
   }, [selectedProvider, providers.data]);
 
   const hasChartData = chartData.length > 0 && chartLines.some((line) =>
@@ -100,12 +108,12 @@ export default function Overview() {
           Connections over time
           {selectedProvider && (
             <span className="ml-2 text-foreground">
-              - by provider
+              - {formatProvider(selectedProvider)}
               <button
                 onClick={() => setSelectedProvider(null)}
                 className="ml-1 text-muted-foreground hover:text-foreground"
               >
-                (show total)
+                (show all)
               </button>
             </span>
           )}
@@ -127,22 +135,16 @@ export default function Overview() {
                 width={40}
               />
               <Tooltip />
-              {selectedProvider && (
-                <Legend
-                  onClick={handleLegendClick}
-                  wrapperStyle={{ cursor: "pointer", fontSize: 12 }}
-                />
-              )}
-              {chartLines.map((name, i) => (
+              <Legend
+                onClick={handleLegendClick}
+                wrapperStyle={{ cursor: "pointer", fontSize: 12 }}
+              />
+              {chartLines.map((name) => (
                 <Line
                   key={name}
                   type="monotone"
                   dataKey={name}
-                  stroke={
-                    selectedProvider
-                      ? PROVIDER_COLORS[i % PROVIDER_COLORS.length]
-                      : TOTAL_LINE_COLOR
-                  }
+                  stroke={providerColorMap.get(name) ?? TOTAL_LINE_COLOR}
                   strokeWidth={2}
                   dot={false}
                 />
@@ -165,8 +167,9 @@ export default function Overview() {
               <div key={p.provider} className="flex justify-between items-center">
                 <button
                   onClick={() => handleProviderClick(p.provider)}
-                  className="text-sm hover:underline text-left"
+                  className="text-sm hover:underline text-left inline-flex items-center gap-2"
                 >
+                  <ProviderIcon provider={p.provider} />
                   {formatProvider(p.provider)}
                 </button>
                 <span className="text-sm text-muted-foreground">

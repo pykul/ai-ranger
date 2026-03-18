@@ -14,6 +14,8 @@ handled transparently, from source code you can read yourself.
 
 ![CI](https://github.com/pykul/ai-ranger/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-Apache--2.0-blue) ![Rust](https://img.shields.io/badge/agent-Rust-orange) ![Latest Release](https://img.shields.io/github/v/release/pykul/ai-ranger) ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 
+![AI Ranger detecting Cursor usage in real time](assets/demo.gif)
+
 ---
 
 ## How it works (and why it is not spying on you)

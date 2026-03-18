@@ -511,6 +511,19 @@ tests\integration\scripts\run-windows.ps1
 
 See `tests/README.md` for details on the test layers and how to add new tests.
 
+### Creating a release
+
+Releases are triggered by pushing a version tag. The `make release` command
+handles the full flow: it verifies the working tree is clean, confirms you are
+on `main`, prompts for a version in `v*.*.*` format, and pushes the tag. GitHub
+Actions then builds agent binaries for all 5 supported platforms (Linux x86_64
+and ARM64, macOS Intel and Apple Silicon, Windows x86_64), packages them as
+archives, generates SHA256 checksums, and publishes a GitHub release with
+everything attached.
+
+Pre-built binaries for each release are on the
+[GitHub Releases page](https://github.com/pykul/ai-ranger/releases).
+
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ---

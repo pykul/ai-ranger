@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*.*.*'
 
 permissions:
   contents: write
@@ -19,19 +19,24 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
             binary: ai-ranger
+            archive: tar.gz
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
             binary: ai-ranger
+            archive: tar.gz
             cross: true
           - target: x86_64-apple-darwin
             runner: macos-latest
             binary: ai-ranger
+            archive: tar.gz
           - target: aarch64-apple-darwin
             runner: macos-latest
             binary: ai-ranger
+            archive: tar.gz
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
             binary: ai-ranger.exe
+            archive: zip
 
     defaults:
       run:
@@ -48,51 +53,62 @@ jobs:
         with:
           workspaces: agent
 
+      - name: Install protoc (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Install protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Install protoc (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install protoc -y
+
       # aarch64-linux cross-compilation needs a cross-linker
       - name: Install cross-compilation tools
         if: matrix.cross
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
+          mkdir -p ../.cargo
           echo '[target.aarch64-unknown-linux-gnu]' >> ../.cargo/config.toml
           echo 'linker = "aarch64-linux-gnu-gcc"' >> ../.cargo/config.toml
-          mkdir -p ../.cargo
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Compute checksum (Unix)
-        if: runner.os != 'Windows'
+      - name: Strip binary (Linux)
+        if: runner.os == 'Linux' && !matrix.cross
+        run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Strip binary (Linux cross)
+        if: matrix.cross
+        run: aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Strip binary (macOS)
+        if: runner.os == 'macOS'
+        run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Archive (tar.gz)
+        if: matrix.archive == 'tar.gz'
         run: |
           cd target/${{ matrix.target }}/release
-          sha256sum ${{ matrix.binary }} > ${{ matrix.binary }}.sha256
+          tar czf ai-ranger-${{ matrix.target }}.tar.gz ${{ matrix.binary }}
 
-      - name: Compute checksum (Windows)
-        if: runner.os == 'Windows'
+      - name: Archive (zip)
+        if: matrix.archive == 'zip'
         shell: pwsh
         run: |
           cd target/${{ matrix.target }}/release
-          $hash = (Get-FileHash ${{ matrix.binary }} -Algorithm SHA256).Hash.ToLower()
-          "$hash  ${{ matrix.binary }}" | Out-File -Encoding ascii ${{ matrix.binary }}.sha256
+          Compress-Archive -Path ${{ matrix.binary }} -DestinationPath ai-ranger-${{ matrix.target }}.zip
 
-      - name: Rename binary with target
-        shell: bash
-        run: |
-          cd target/${{ matrix.target }}/release
-          if [[ "${{ matrix.binary }}" == *.exe ]]; then
-            cp ${{ matrix.binary }} ai-ranger-${{ matrix.target }}.exe
-            cp ${{ matrix.binary }}.sha256 ai-ranger-${{ matrix.target }}.exe.sha256
-          else
-            cp ${{ matrix.binary }} ai-ranger-${{ matrix.target }}
-            cp ${{ matrix.binary }}.sha256 ai-ranger-${{ matrix.target }}.sha256
-          fi
-
-      - name: Upload artifacts
+      - name: Upload archive
         uses: actions/upload-artifact@v4
         with:
           name: ai-ranger-${{ matrix.target }}
-          path: |
-            agent/target/${{ matrix.target }}/release/ai-ranger-${{ matrix.target }}*
+          path: agent/target/${{ matrix.target }}/release/ai-ranger-${{ matrix.target }}.*
 
   release:
     name: Create GitHub Release
@@ -106,8 +122,36 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Generate checksums.txt
+        run: |
+          cd artifacts
+          sha256sum ai-ranger-*.tar.gz ai-ranger-*.zip > checksums.txt
+          echo "--- checksums.txt ---"
+          cat checksums.txt
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: artifacts/*
+          body: |
+            ## Installation
+
+            Download the binary for your platform and run it. No dependencies required.
+
+            See the [production deployment guide](https://github.com/pykul/ai-ranger#production-deployment) for full setup instructions.
+
+            ## Verify
+
+            After downloading, verify the checksum:
+
+            ```bash
+            sha256sum -c checksums.txt --ignore-missing
+            ```
+
+            ## What changed
+
+            See the [full changelog](https://github.com/pykul/ai-ranger/commits/${{ github.ref_name }}) for details.
+          files: |
+            artifacts/ai-ranger-*.tar.gz
+            artifacts/ai-ranger-*.zip
+            artifacts/checksums.txt

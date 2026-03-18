@@ -1714,6 +1714,40 @@ Hard problems to solve in Phase 5:
 
 ---
 
+## Release Process
+
+Releases are triggered by pushing a semantic version tag (`v*.*.*`) to the
+repository. The GitHub Actions release workflow builds the agent for all
+supported platforms, strips the binaries, packages them as archives, generates
+checksums, and creates a GitHub release with all assets attached.
+
+**Supported binary targets:**
+
+| Target | Archive format | Runner |
+|--------|---------------|--------|
+| `x86_64-unknown-linux-gnu` | `.tar.gz` | ubuntu-latest |
+| `aarch64-unknown-linux-gnu` | `.tar.gz` | ubuntu-latest (cross-compiled) |
+| `x86_64-apple-darwin` | `.tar.gz` | macos-latest |
+| `aarch64-apple-darwin` | `.tar.gz` | macos-latest |
+| `x86_64-pc-windows-msvc` | `.zip` | windows-latest |
+
+**Creating a release:**
+
+```bash
+make release
+```
+
+This validates the working tree is clean, confirms the current branch is `main`,
+prompts for a version tag (e.g. `v0.1.0`), creates the tag, and pushes it to
+origin. The push triggers the release workflow automatically.
+
+Each release includes:
+- 5 platform-specific archives (3 Linux/macOS `.tar.gz` + 1 Windows `.zip`)
+- A `checksums.txt` file with SHA256 hashes for all archives
+- Auto-generated release notes from commits since the previous tag
+
+---
+
 ## Known Limitations
 
 - **Process attribution resolves the process that owns the socket at the moment of capture.** Short-lived child processes (e.g. `curl` spawned from a shell) may appear as their parent process or as `"unknown"` if the process exits before the name can be resolved. The PID is always accurate regardless. This is expected behavior and not a bug. In practice it does not affect real AI tool detection since tools like Cursor, Claude Code, and Python scripts own their sockets directly.

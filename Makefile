@@ -1,5 +1,5 @@
 .PHONY: all build test lint clean proto dev dev-reset down logs help test-integration \
-       install ps prod prod-down dev-dashboard
+       install ps prod prod-down dev-dashboard release
 
 help:              ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -77,6 +77,28 @@ prod-down:         ## Stop production stack
 
 test-integration:  ## Build agent, start Docker stack, run integration tests (requires sudo)
 	@bash tests/run-integration.sh
+
+release:           ## Tag a release and push to trigger the release workflow (must be on main with clean tree)
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "ERROR: Working tree is not clean. Commit or stash changes first."; \
+		exit 1; \
+	fi
+	@branch=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ "$$branch" != "main" ]; then \
+		echo "ERROR: Releases must be tagged from main. Current branch: $$branch"; \
+		exit 1; \
+	fi
+	@printf "Enter version tag (e.g. v0.1.0): "; \
+	read version; \
+	if ! echo "$$version" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$'; then \
+		echo "ERROR: Invalid version format. Must be v<major>.<minor>.<patch> (e.g. v0.1.0)"; \
+		exit 1; \
+	fi; \
+	git tag "$$version" && \
+	git push origin "$$version" && \
+	echo "" && \
+	echo "Tag $$version pushed. Release workflow started." && \
+	echo "Watch the build at: https://github.com/pykul/ai-ranger/actions"
 
 clean:             ## Clean all build artifacts
 	$(MAKE) -C agent clean

@@ -974,3 +974,21 @@ The tradeoff is more frequent HTTP requests to the gateway. A developer machine
 generating 10-50 events per minute produces at most one request per second, which
 the gateway handles trivially. For high-volume deployments that want larger batches
 and less frequent uploads, the drain interval and batch size are configurable.
+
+### Tag-based releases over continuous releases
+
+Releases are triggered by pushing a semantic version tag (`v*.*.*`), not by
+merging to main. Merging to main only runs CI. A release is a deliberate,
+version-tagged event.
+
+The alternative was continuous releases (build and publish on every merge to
+main). This was rejected because: not every merge is release-worthy (doc fixes,
+test additions, and internal refactors do not need a new binary), continuous
+releases make it hard to communicate "this is a stable version you should
+upgrade to," and the release cadence should be controlled by the maintainer
+rather than the merge frequency.
+
+The `make release` target enforces the workflow: clean working tree, on main,
+valid semver tag, push to trigger the build. The release workflow builds all 5
+platform binaries, strips them, packages as archives, generates SHA256
+checksums, and creates a GitHub release with all assets attached.

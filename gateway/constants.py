@@ -29,6 +29,17 @@ RABBITMQ_EXCHANGE = "ranger.events"
 RABBITMQ_ROUTING_KEY = "ingest"
 """Routing key used when publishing to the exchange."""
 
+RABBITMQ_HEARTBEAT_SECS = 300
+"""Client-requested heartbeat interval for the RabbitMQ connection.
+Pika's default (600s) can be negotiated down by the broker, but a 5-minute
+heartbeat keeps the connection alive during typical idle periods without
+excessive traffic."""
+
+RABBITMQ_PUBLISH_RETRIES = 2
+"""Number of publish attempts before raising. On the first failure we reset
+the connection and retry once, which handles the common case of RabbitMQ
+dropping an idle connection between heartbeats."""
+
 # -- HTTP headers ----------------------------------------------------------
 
 AUTH_HEADER = "Authorization"

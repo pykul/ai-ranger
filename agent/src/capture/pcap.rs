@@ -262,9 +262,12 @@ mod platform {
             let proto = (ETH_P_ALL as u16).to_be() as i32;
             let sock = socket(AF_PACKET, SOCK_RAW, proto);
             if sock < 0 {
+                let err = std::io::Error::last_os_error();
                 return Err(format!(
-                    "socket(AF_PACKET) failed: {} - run with sudo",
-                    *libc::__errno_location()
+                    "Raw packet capture requires root privileges.\n\
+                     Run with: sudo ai-ranger\n\
+                     Or install as a systemd service: sudo bash scripts/install/linux.sh\n\
+                     (socket(AF_PACKET) failed: {err})"
                 )
                 .into());
             }
@@ -490,7 +493,11 @@ mod platform {
                 return Ok(fd);
             }
         }
-        Err("could not open any /dev/bpf* device - run with sudo".into())
+        Err("Raw packet capture requires root privileges.\n\
+             Run with: sudo ai-ranger\n\
+             Or install as a launchd daemon: sudo bash scripts/install/macos.sh\n\
+             (could not open any /dev/bpf* device)"
+            .into())
     }
 
     /// Detect the primary active non-loopback IPv4 interface via getifaddrs.
@@ -579,7 +586,10 @@ mod platform {
             let sock = socket(AF_INET, SOCK_RAW, IPPROTO_IP);
             if sock == INVALID_SOCKET {
                 return Err(format!(
-                    "socket() failed: {} - run as Administrator",
+                    "Raw packet capture requires Administrator privileges.\n\
+                     Run as Administrator (right-click -> Run as administrator),\n\
+                     or install as a Windows Service: scripts\\install\\windows.ps1\n\
+                     (socket() failed: WSA error {})",
                     WSAGetLastError()
                 )
                 .into());
@@ -618,7 +628,10 @@ mod platform {
             {
                 closesocket(sock);
                 return Err(format!(
-                    "WSAIoctl(SIO_RCVALL) failed: {} - run as Administrator",
+                    "Raw packet capture requires Administrator privileges.\n\
+                     Run as Administrator (right-click -> Run as administrator),\n\
+                     or install as a Windows Service: scripts\\install\\windows.ps1\n\
+                     (WSAIoctl(SIO_RCVALL) failed: WSA error {})",
                     WSAGetLastError()
                 )
                 .into());

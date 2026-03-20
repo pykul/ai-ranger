@@ -71,6 +71,12 @@ pub const PROTO_TCP: u8 = 6;
 /// IP protocol number for UDP (RFC 768).
 pub const PROTO_UDP: u8 = 17;
 
+/// IP protocol number for ICMPv6 (RFC 4443). Silently ignored — not relevant to SNI/DNS extraction.
+pub const PROTO_ICMPV6: u8 = 58;
+
+/// IP protocol number for ICMP (RFC 792). Silently ignored — not relevant to SNI/DNS extraction.
+pub const PROTO_ICMP: u8 = 1;
+
 // ── TCP / UDP ports ─────────────────────────────────────────────────────────
 
 /// HTTPS port. The agent filters TCP traffic to this port for TLS ClientHello capture.

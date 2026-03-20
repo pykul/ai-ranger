@@ -164,8 +164,10 @@ fn parse_ipv6_packet(ip6: &[u8]) -> Option<PacketInfo> {
                 next_header = ip6[offset];
                 offset += IPV6_FRAGMENT_HEADER_SIZE;
             }
+            // Known non-TCP/UDP protocols we can't extract hostnames from — skip silently.
+            PROTO_ICMPV6 | PROTO_ICMP => return None,
             other => {
-                // Unknown extension header type - cannot walk past safely.
+                // Truly unknown extension header type - log once for debugging.
                 eprintln!(
                     "[ai-ranger] IPv6: unknown next-header type {} at offset {}, skipping packet",
                     other, offset

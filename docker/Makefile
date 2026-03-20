@@ -44,7 +44,7 @@ dev-reset:         ## Wipe ALL volumes (data lost!), rebuild, wait for healthy (
 		dirs="$$dirs $$APPDATA/ai-ranger"; \
 	fi; \
 	for dir in $$dirs; do \
-		if [ -d "$$dir" ]; then \
+		if [ -d "$$dir" ] || sudo test -d "$$dir" 2>/dev/null; then \
 			rm -rf "$$dir" 2>/dev/null || sudo rm -rf "$$dir"; \
 			echo "Cleared agent config at $$dir (will re-enroll on next run)"; \
 		fi; \

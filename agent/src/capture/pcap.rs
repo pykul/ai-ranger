@@ -178,6 +178,222 @@ fn parse_ipv6_packet(ip6: &[u8]) -> Option<PacketInfo> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capture::constants::*;
+
+    /// Build a minimal IPv4 + TCP packet with a TLS ClientHello containing the given SNI.
+    fn build_ipv4_tcp_sni(hostname: &str) -> Vec<u8> {
+        // Build TLS ClientHello payload using the same approach as sni::tests
+        let tls_payload = build_tls_client_hello(hostname);
+        // TCP header (20 bytes, data offset = 5 words = 20 bytes)
+        let tcp_header_len: usize = 20;
+        let mut tcp = vec![0u8; tcp_header_len];
+        // src_port = 12345
+        tcp[0..2].copy_from_slice(&12345u16.to_be_bytes());
+        // dst_port = 443
+        tcp[2..4].copy_from_slice(&HTTPS_PORT.to_be_bytes());
+        // data offset = 5 (5 * 4 = 20) in high nibble of byte 12
+        tcp[12] = 0x50;
+
+        let mut transport = tcp;
+        transport.extend_from_slice(&tls_payload);
+
+        build_ipv4_packet(PROTO_TCP, &transport)
+    }
+
+    /// Build a minimal TLS ClientHello with SNI extension.
+    fn build_tls_client_hello(hostname: &str) -> Vec<u8> {
+        let name_bytes = hostname.as_bytes();
+        let sni_entry_len = 1 + 2 + name_bytes.len();
+        let sni_ext_data_len = 2 + sni_entry_len;
+        let ext_len = 4 + sni_ext_data_len;
+        let hello_body_len = 2 + 32 + 1 + 2 + 2 + 1 + 1 + 2 + ext_len;
+        let handshake_len = 4 + hello_body_len;
+
+        let mut buf = Vec::with_capacity(5 + handshake_len);
+        // TLS record header
+        buf.push(TLS_CONTENT_TYPE_HANDSHAKE);
+        buf.extend_from_slice(&[0x03, 0x01]);
+        buf.extend_from_slice(&(handshake_len as u16).to_be_bytes());
+        // Handshake header
+        buf.push(TLS_HANDSHAKE_CLIENT_HELLO);
+        let hl = hello_body_len as u32;
+        buf.extend_from_slice(&[((hl >> 16) & 0xff) as u8, ((hl >> 8) & 0xff) as u8, (hl & 0xff) as u8]);
+        // ClientHello body
+        buf.extend_from_slice(&[0x03, 0x03]); // TLS 1.2
+        buf.extend_from_slice(&[0u8; 32]); // random
+        buf.push(0); // session ID length
+        buf.extend_from_slice(&2u16.to_be_bytes()); // cipher suites length
+        buf.extend_from_slice(&[0x00, 0x2f]); // one cipher suite
+        buf.push(1); // compression methods length
+        buf.push(0); // null compression
+        // Extensions
+        buf.extend_from_slice(&(ext_len as u16).to_be_bytes());
+        // SNI extension
+        buf.extend_from_slice(&TLS_EXT_SNI.to_be_bytes());
+        buf.extend_from_slice(&(sni_ext_data_len as u16).to_be_bytes());
+        buf.extend_from_slice(&(sni_entry_len as u16).to_be_bytes());
+        buf.push(SNI_HOST_NAME_TYPE);
+        buf.extend_from_slice(&(name_bytes.len() as u16).to_be_bytes());
+        buf.extend_from_slice(name_bytes);
+        buf
+    }
+
+    /// Wrap a transport payload in a minimal IPv4 header.
+    fn build_ipv4_packet(proto: u8, transport: &[u8]) -> Vec<u8> {
+        let total_len = IPV4_HEADER_MIN_SIZE + transport.len();
+        let mut ip = vec![0u8; IPV4_HEADER_MIN_SIZE];
+        ip[0] = 0x45; // version 4, IHL 5
+        ip[2..4].copy_from_slice(&(total_len as u16).to_be_bytes());
+        ip[IPV4_PROTOCOL_OFFSET] = proto;
+        // src IP: 10.0.0.1
+        ip[12..16].copy_from_slice(&[10, 0, 0, 1]);
+        // dst IP: 10.0.0.2
+        ip[16..20].copy_from_slice(&[10, 0, 0, 2]);
+        ip.extend_from_slice(transport);
+        ip
+    }
+
+    #[test]
+    fn parse_ipv4_tcp_extracts_sni() {
+        let pkt = build_ipv4_tcp_sni("api.openai.com");
+        let info = parse_ipv4_packet(&pkt).unwrap();
+        assert_eq!(info.hostname, "api.openai.com");
+        assert_eq!(info.detection_method, "sni");
+        assert_eq!(info.src_port, 12345);
+        assert_eq!(info.src_ip, "10.0.0.1");
+        assert_eq!(info.dst_ip, "10.0.0.2");
+    }
+
+    #[test]
+    fn parse_ipv4_unknown_proto_returns_none() {
+        // Protocol 50 (ESP) — should be ignored
+        let pkt = build_ipv4_packet(50, &[0u8; 20]);
+        assert!(parse_ipv4_packet(&pkt).is_none());
+    }
+
+    #[test]
+    fn parse_ipv4_truncated_returns_none() {
+        assert!(parse_ipv4_packet(&[0u8; 10]).is_none());
+    }
+
+    #[test]
+    fn parse_tcp_non_tls_returns_none() {
+        // TCP to port 443 but payload is not TLS (no 0x16 byte)
+        let mut tcp = vec![0u8; 20];
+        tcp[0..2].copy_from_slice(&12345u16.to_be_bytes());
+        tcp[2..4].copy_from_slice(&HTTPS_PORT.to_be_bytes());
+        tcp[12] = 0x50;
+        // Non-TLS payload
+        tcp.extend_from_slice(&[0x00, 0x01, 0x02]);
+        let pkt = build_ipv4_packet(PROTO_TCP, &tcp);
+        assert!(parse_ipv4_packet(&pkt).is_none());
+    }
+
+    #[test]
+    fn parse_tcp_wrong_port_returns_none() {
+        let mut tcp = vec![0u8; 20];
+        tcp[0..2].copy_from_slice(&12345u16.to_be_bytes());
+        tcp[2..4].copy_from_slice(&80u16.to_be_bytes()); // HTTP, not HTTPS
+        tcp[12] = 0x50;
+        let pkt = build_ipv4_packet(PROTO_TCP, &tcp);
+        assert!(parse_ipv4_packet(&pkt).is_none());
+    }
+
+    #[cfg(not(windows))]
+    mod ipv6_tests {
+        use super::*;
+
+        /// Build a minimal IPv6 packet with the given next-header and transport payload.
+        fn build_ipv6_packet(next_header: u8, transport: &[u8]) -> Vec<u8> {
+            let mut ip6 = vec![0u8; IPV6_HEADER_SIZE];
+            ip6[0] = 0x60; // version 6
+            let payload_len = transport.len() as u16;
+            ip6[4..6].copy_from_slice(&payload_len.to_be_bytes());
+            ip6[6] = next_header;
+            // src: ::1
+            ip6[23] = 1;
+            // dst: ::2
+            ip6[39] = 2;
+            ip6.extend_from_slice(transport);
+            ip6
+        }
+
+        /// Build a TCP+TLS payload for IPv6 tests.
+        fn build_tcp_tls_payload(hostname: &str) -> Vec<u8> {
+            let tls_payload = build_tls_client_hello(hostname);
+            let mut tcp = vec![0u8; 20];
+            tcp[0..2].copy_from_slice(&12345u16.to_be_bytes());
+            tcp[2..4].copy_from_slice(&HTTPS_PORT.to_be_bytes());
+            tcp[12] = 0x50;
+            tcp.extend_from_slice(&tls_payload);
+            tcp
+        }
+
+        #[test]
+        fn parse_ipv6_tcp_extracts_sni() {
+            let transport = build_tcp_tls_payload("api.anthropic.com");
+            let pkt = build_ipv6_packet(PROTO_TCP, &transport);
+            let info = parse_ipv6_packet(&pkt).unwrap();
+            assert_eq!(info.hostname, "api.anthropic.com");
+            assert_eq!(info.detection_method, "sni");
+        }
+
+        #[test]
+        fn parse_ipv6_icmpv6_returns_none() {
+            let pkt = build_ipv6_packet(PROTO_ICMPV6, &[0u8; 20]);
+            assert!(parse_ipv6_packet(&pkt).is_none());
+        }
+
+        #[test]
+        fn parse_ipv6_icmp_returns_none() {
+            let pkt = build_ipv6_packet(PROTO_ICMP, &[0u8; 20]);
+            assert!(parse_ipv6_packet(&pkt).is_none());
+        }
+
+        #[test]
+        fn parse_ipv6_truncated_returns_none() {
+            assert!(parse_ipv6_packet(&[0x60; 10]).is_none());
+        }
+
+        #[test]
+        fn parse_ipv6_wrong_version_returns_none() {
+            let mut pkt = vec![0u8; IPV6_HEADER_SIZE + 20];
+            pkt[0] = 0x40; // version 4 instead of 6
+            assert!(parse_ipv6_packet(&pkt).is_none());
+        }
+
+        #[test]
+        fn parse_ipv6_with_hop_by_hop_extension() {
+            // Hop-by-Hop extension header (type 0) followed by TCP
+            let tcp_payload = build_tcp_tls_payload("api.openai.com");
+            let mut ext = vec![0u8; 8]; // 8-byte extension header
+            ext[0] = PROTO_TCP; // next-header = TCP
+            ext[1] = 0; // length = 0 means 8 bytes total ((0+1)*8)
+            let mut transport = ext;
+            transport.extend_from_slice(&tcp_payload);
+            let pkt = build_ipv6_packet(IPV6_EXT_HOP_BY_HOP, &transport);
+            let info = parse_ipv6_packet(&pkt).unwrap();
+            assert_eq!(info.hostname, "api.openai.com");
+        }
+
+        #[test]
+        fn parse_ipv6_with_fragment_extension() {
+            // Fragment extension header (8 bytes fixed) followed by TCP
+            let tcp_payload = build_tcp_tls_payload("api.openai.com");
+            let mut ext = vec![0u8; IPV6_FRAGMENT_HEADER_SIZE];
+            ext[0] = PROTO_TCP; // next-header = TCP
+            let mut transport = ext;
+            transport.extend_from_slice(&tcp_payload);
+            let pkt = build_ipv6_packet(IPV6_EXT_FRAGMENT, &transport);
+            let info = parse_ipv6_packet(&pkt).unwrap();
+            assert_eq!(info.hostname, "api.openai.com");
+        }
+    }
+}
+
 /// Parse an Ethernet frame and extract hostname from IPv4 or IPv6 payload.
 /// Used by Linux (AF_PACKET) and macOS (BPF) which both deliver raw Ethernet frames.
 #[cfg(unix)]

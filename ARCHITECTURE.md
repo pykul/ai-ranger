@@ -889,6 +889,11 @@ The parser reads:
 
 This is approximately 80 lines of Rust with no external C library dependencies.
 
+**Important:** SNI extraction detects *connection establishment*, not individual requests.
+Modern clients (HTTP/2, keep-alive) reuse a single TLS connection for many requests, so
+only one event is generated per connection lifetime. A burst of API calls over a persistent
+connection appears as a single detection at the time the connection was opened.
+
 ---
 
 ## Packet Capture Backend - Per OS

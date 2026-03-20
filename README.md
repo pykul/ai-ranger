@@ -441,6 +441,11 @@ command finished before the lookup ran. The process ID is always accurate regard
 Real AI tools like Cursor, Claude Code, and Copilot keep their connections open and
 always show up correctly.
 
+**A note on persistent connections.** SNI detection captures *connection establishment*,
+not individual requests. Modern clients (HTTP/2, keep-alive) reuse a single TLS
+connection for many requests, so only one event is generated per connection lifetime —
+for example, an entire Claude Code session may appear as a single detection at startup.
+
 **A note on browser detection.** Some applications, primarily modern browsers, encrypt
 the destination hostname using Encrypted Client Hello (ECH), a general TLS privacy
 feature, which prevents the agent from reading it via SNI.

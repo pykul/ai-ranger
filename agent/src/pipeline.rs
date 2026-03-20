@@ -45,6 +45,15 @@ pub(crate) fn handle_packet(
     let (process_pid, process_name) = process::pid_and_name(packet.src_port);
     let proc_path = process::process_path(process_pid);
 
+    // Resolve the OS username of the process owner. Falls back to the agent's
+    // own username (ctx.os_username) when PID is 0 (DNS events without process
+    // attribution) or when resolution fails.
+    let os_username = if process_pid == 0 {
+        ctx.os_username.clone()
+    } else {
+        process::resolve_process_owner(process_pid).unwrap_or_else(|| "unknown".to_string())
+    };
+
     // Compute connection_id for dedup and construct event.
     let timestamp_ms = Utc::now().timestamp_millis();
     let connection_id = dedup::compute_connection_id(&packet.src_ip, &provider_host, timestamp_ms);
@@ -52,7 +61,7 @@ pub(crate) fn handle_packet(
     Some(AiConnectionEvent::new(
         ctx.agent_id.clone(),
         ctx.machine_hostname.clone(),
-        ctx.os_username.clone(),
+        os_username,
         ctx.os_type.clone(),
         connection_id,
         timestamp_ms,

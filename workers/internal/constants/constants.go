@@ -44,6 +44,9 @@ const RouteDashboardUsers = "/v1/dashboard/users"
 // RouteDashboardTraffic returns hourly/daily traffic by provider.
 const RouteDashboardTraffic = "/v1/dashboard/traffic/timeseries"
 
+// RouteDashboardMachines returns top machines by connection count.
+const RouteDashboardMachines = "/v1/dashboard/machines"
+
 // RouteDashboardFleet returns all enrolled agents and status.
 const RouteDashboardFleet = "/v1/dashboard/fleet"
 

@@ -10,7 +10,7 @@ import {
   Legend,
 } from "recharts";
 import { useTimeRange } from "@/hooks/use-time-range";
-import { useOverview, useProviders, useUsers, useTraffic } from "@/hooks/use-dashboard";
+import { useOverview, useProviders, useUsers, useMachines, useTraffic } from "@/hooks/use-dashboard";
 import { formatProvider, formatNumber } from "@/lib/format";
 import { PROVIDER_COLORS, TOTAL_LINE_COLOR } from "@/lib/theme";
 
@@ -21,6 +21,7 @@ export default function Overview() {
   const overview = useOverview(days);
   const providers = useProviders(days);
   const users = useUsers(days, selectedProvider);
+  const machines = useMachines(days);
   const traffic = useTraffic(days);
 
   // Build chart data: always per-provider lines with different colors.
@@ -159,7 +160,7 @@ export default function Overview() {
       </div>
 
       {/* Ranked lists */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div className="rounded-lg border border-border bg-card p-6">
           <h3 className="text-sm font-medium text-muted-foreground mb-4">Top providers</h3>
           <div className="space-y-3">
@@ -200,6 +201,23 @@ export default function Overview() {
               </div>
             ))}
             {(!users.data || users.data.length === 0) && (
+              <p className="text-sm text-muted-foreground">No data for this period.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-6">
+          <h3 className="text-sm font-medium text-muted-foreground mb-4">Top machines</h3>
+          <div className="space-y-3">
+            {machines.data?.map((m) => (
+              <div key={m.machine_hostname} className="flex justify-between items-center">
+                <span className="text-sm">{m.machine_hostname}</span>
+                <span className="text-sm text-muted-foreground">
+                  {formatNumber(m.connections)}
+                </span>
+              </div>
+            ))}
+            {(!machines.data || machines.data.length === 0) && (
               <p className="text-sm text-muted-foreground">No data for this period.</p>
             )}
           </div>

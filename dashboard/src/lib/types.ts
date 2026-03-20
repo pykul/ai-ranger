@@ -15,6 +15,11 @@ export interface UserActivity {
   connections: number;
 }
 
+export interface MachineActivity {
+  machine_hostname: string;
+  connections: number;
+}
+
 export interface TrafficPoint {
   timestamp: string;
   provider: string;

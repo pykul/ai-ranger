@@ -57,6 +57,7 @@ The agent is fully standalone by default - it outputs JSON events to stdout with
 ## Git Workflow
 
 - **Never push directly to main.** Always create a feature branch and push that. Only push to main if explicitly instructed to do so.
+- **Always branch from main.** Before creating a new feature branch, run `git checkout main && git pull origin main` to ensure you are on the latest main. Never branch from an existing feature branch or a stale local main. This prevents duplicate commits and merge conflicts when the PR is created.
 
 ## Key Constraints
 

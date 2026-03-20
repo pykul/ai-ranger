@@ -71,8 +71,7 @@ fn run_service() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let status_handle =
-        service_control_handler::register(SERVICE_NAME, event_handler)?;
+    let status_handle = service_control_handler::register(SERVICE_NAME, event_handler)?;
 
     // Report "running" to the SCM.
     status_handle.set_service_status(ServiceStatus {

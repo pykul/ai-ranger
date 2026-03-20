@@ -54,6 +54,17 @@ func dashboardUsers(chStore *store.ClickHouseStore) http.HandlerFunc {
 	}
 }
 
+func dashboardMachines(chStore *store.ClickHouseStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		machines, err := chStore.GetMachines(r.Context(), parseDays(r))
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, machines)
+	}
+}
+
 func dashboardTraffic(chStore *store.ClickHouseStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		traffic, err := chStore.GetTrafficTimeseries(r.Context(), parseDays(r))

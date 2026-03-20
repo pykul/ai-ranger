@@ -4,6 +4,7 @@ import type {
   OverviewStats,
   ProviderBreakdown,
   UserActivity,
+  MachineActivity,
   TrafficPoint,
 } from "@/lib/types";
 
@@ -27,6 +28,13 @@ export function useUsers(days: number, provider: string | null) {
   return useQuery({
     queryKey: ["users", days, provider],
     queryFn: () => api<UserActivity[]>(`/v1/dashboard/users?${params}`),
+  });
+}
+
+export function useMachines(days: number) {
+  return useQuery({
+    queryKey: ["machines", days],
+    queryFn: () => api<MachineActivity[]>(`/v1/dashboard/machines?days=${days}`),
   });
 }
 

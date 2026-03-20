@@ -82,10 +82,18 @@ pub fn start(
                     return;
                 };
 
-                // Get process name and path from the ETW event's process ID.
+                // Get process name, path, and owner from the ETW event's process ID.
                 let pid = record.process_id();
                 let process_name = process::name_by_pid(pid);
                 let proc_path = process::process_path(pid);
+
+                // Resolve the process owner per-connection. Falls back to the
+                // agent's own username when PID is 0 or resolution fails.
+                let event_username = if pid == 0 {
+                    os_username.clone()
+                } else {
+                    process::resolve_process_owner(pid).unwrap_or_else(|| "unknown".to_string())
+                };
 
                 let timestamp_ms = chrono::Utc::now().timestamp_millis();
                 // ETW DNS events have no source IP - use empty string for the hash.
@@ -97,7 +105,7 @@ pub fn start(
                 let event = AiConnectionEvent::new(
                     agent_id.clone(),
                     machine_hostname.clone(),
-                    os_username.clone(),
+                    event_username,
                     os_type.clone(),
                     connection_id,
                     timestamp_ms,

@@ -42,10 +42,14 @@ class APIServer:
         return resp.json()
 
     def traffic(self) -> list[dict]:
-        """GET /v1/dashboard/traffic/timeseries — returns hourly traffic."""
+        """GET /v1/dashboard/traffic/timeseries -- returns hourly traffic."""
         resp = self._client.get("/v1/dashboard/traffic/timeseries")
         resp.raise_for_status()
         return resp.json()
+
+    def machines(self, **params: str | int) -> httpx.Response:
+        """GET /v1/dashboard/machines -- returns per-machine activity."""
+        return self._client.get("/v1/dashboard/machines", params=params)
 
     def events(self, **params: str | int) -> httpx.Response:
         """GET /v1/events — returns raw response for flexible assertions."""

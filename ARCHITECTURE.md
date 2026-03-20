@@ -1827,6 +1827,8 @@ Each release includes:
 
 - **On Windows, DNS-based detection relies on the Windows DNS client service.** Applications that use their own internal DoH resolver, bypassing the OS DNS client, are invisible to ETW DNS-Client events. Currently this is primarily browsers (Chrome, Firefox, Edge, Brave) but the limitation applies to any application that implements DoH internally. CLI tools, SDKs, and desktop AI applications use the system DNS resolver and are detected normally.
 
+- **`os_username` is resolved per-connection from the process owner, not the agent's own user.** When the agent runs as root (required for raw socket capture), each event's `os_username` reflects the user who owns the process that made the AI connection (e.g. "omria", "john"), not "root". DNS events without PID attribution (process_pid == 0) fall back to the agent's own username. If process owner resolution fails for any reason (process exited, permission error), the field is set to "unknown". This is best-effort and honest -- it will not fabricate attribution.
+
 - **Ollama local model detection is not implemented.** The `ports` and `tls` fields in `providers.toml` are parsed but ignored. Connections to localhost on port 11434 without TLS cannot be detected via SNI. See DECISIONS.md for the planned TCP heuristic approach.
 
 ---

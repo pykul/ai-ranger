@@ -24,6 +24,23 @@ pub fn name_by_pid(pid: u32) -> String {
     process_name(pid).unwrap_or_else(|| "unknown".to_string())
 }
 
+/// Resolve the OS username that owns the process with the given PID.
+///
+/// This is a best-effort synchronous lookup. It will never panic or block
+/// the event pipeline. All failures are silent with graceful fallback.
+/// If this proves slow under load it should be moved to a background resolver.
+///
+/// Returns:
+/// - The username of the process owner on success (e.g. "omria", "john")
+/// - "unknown" if the PID exists but resolution fails for any reason
+/// - Should not be called with pid == 0 (caller handles that case with a fallback)
+pub fn resolve_process_owner(pid: u32) -> Option<String> {
+    if pid == 0 {
+        return None;
+    }
+    resolve_owner_impl(pid)
+}
+
 /// Return the full executable path for a PID, or None if unavailable.
 pub fn process_path(pid: u32) -> Option<String> {
     if pid == 0 {
@@ -144,6 +161,87 @@ fn process_path_impl(pid: u32) -> Option<String> {
     query_full_image_path(pid)
 }
 
+/// Resolve the owner of a process on Windows using OpenProcessToken +
+/// GetTokenInformation(TokenUser) + LookupAccountSidW.
+#[cfg(windows)]
+fn resolve_owner_impl(pid: u32) -> Option<String> {
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::{
+        GetTokenInformation, LookupAccountSidW, TokenUser, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER,
+    };
+    use windows::Win32::System::Threading::{
+        OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    // Open process handle.
+    let proc_handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()? };
+
+    // Open process token.
+    let mut token_handle = HANDLE::default();
+    let ok = unsafe { OpenProcessToken(proc_handle, TOKEN_QUERY, &mut token_handle) };
+    unsafe {
+        let _ = CloseHandle(proc_handle);
+    }
+    if ok.is_err() {
+        return None;
+    }
+
+    // Query token user info - first call to get required buffer size.
+    let mut needed: u32 = 0;
+    let _ = unsafe { GetTokenInformation(token_handle, TokenUser, None, 0, &mut needed) };
+    if needed == 0 {
+        unsafe {
+            let _ = CloseHandle(token_handle);
+        }
+        return None;
+    }
+
+    let mut buf = vec![0u8; needed as usize];
+    let ok = unsafe {
+        GetTokenInformation(
+            token_handle,
+            TokenUser,
+            Some(buf.as_mut_ptr() as *mut _),
+            needed,
+            &mut needed,
+        )
+    };
+    unsafe {
+        let _ = CloseHandle(token_handle);
+    }
+    if ok.is_err() {
+        return None;
+    }
+
+    let token_user = unsafe { &*(buf.as_ptr() as *const TOKEN_USER) };
+    let sid = token_user.User.Sid;
+
+    // Lookup account name from SID.
+    let mut name_len: u32 = 256;
+    let mut domain_len: u32 = 256;
+    let mut name_buf = vec![0u16; name_len as usize];
+    let mut domain_buf = vec![0u16; domain_len as usize];
+    let mut sid_type = SID_NAME_USE::default();
+
+    let ok = unsafe {
+        LookupAccountSidW(
+            None,
+            sid,
+            Some(PWSTR(name_buf.as_mut_ptr())),
+            &mut name_len,
+            Some(PWSTR(domain_buf.as_mut_ptr())),
+            &mut domain_len,
+            &mut sid_type,
+        )
+    };
+    if ok.is_err() {
+        return None;
+    }
+
+    Some(String::from_utf16_lossy(&name_buf[..name_len as usize]))
+}
+
 // ── Linux ─────────────────────────────────────────────────────────────────────
 
 #[cfg(target_os = "linux")]
@@ -200,6 +298,19 @@ fn process_path_impl(pid: u32) -> Option<String> {
     std::fs::read_link(format!("/proc/{pid}/exe"))
         .ok()
         .map(|p| p.to_string_lossy().to_string())
+}
+
+/// Resolve the owner of a process on Linux by reading /proc/<pid>/status
+/// and looking up the real UID via nix::unistd::User::from_uid.
+#[cfg(target_os = "linux")]
+fn resolve_owner_impl(pid: u32) -> Option<String> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    // The Uid line format is: Uid:\t<real>\t<effective>\t<saved>\t<fs>
+    let uid_line = status.lines().find(|l| l.starts_with("Uid:"))?;
+    let real_uid_str = uid_line.split_whitespace().nth(1)?;
+    let uid: u32 = real_uid_str.parse().ok()?;
+    let user = nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid)).ok()??;
+    Some(user.name)
 }
 
 // ── macOS ─────────────────────────────────────────────────────────────────────
@@ -435,6 +546,67 @@ fn process_path_impl(pid: u32) -> Option<String> {
     macos_proc::get_process_path(pid)
 }
 
+/// Resolve the owner of a process on macOS using proc_pidinfo with
+/// PROC_PIDTBSDINFO flavor to get the process UID, then getpwuid_r
+/// to resolve it to a username.
+#[cfg(target_os = "macos")]
+fn resolve_owner_impl(pid: u32) -> Option<String> {
+    use libc::{c_int, c_void};
+
+    // PROC_PIDTBSDINFO returns a proc_bsdinfo struct.
+    const PROC_PIDTBSDINFO: c_int = 3;
+    // sizeof(struct proc_bsdinfo) on 64-bit macOS = 636 bytes.
+    const PROC_BSDINFO_SIZE: usize = 636;
+    // Offset of pbi_uid (uint32_t) within proc_bsdinfo.
+    // From bsd/sys/proc_info.h: pbi_flags(4) + pbi_status(4) + pbi_pid(4) +
+    // pbi_ppid(4) + pbi_pgid(4) + pbi_pjobc(4) + pbi_e_tdev(4) +
+    // pbi_e_tpgid(4) = 32 bytes, then pbi_nfiles(4) + pbi_uid(4) at offset 36... no.
+    // Actually: pbi_flags(u32=4) + pbi_status(u32=4) + pbi_xstatus(u32=4) +
+    // pbi_pid(u32=4) + pbi_ppid(u32=4) + pbi_pgid(u32=4) + pbi_pjobc(u32=4) +
+    // pbi_e_tdev(u32=4) + pbi_e_tpgid(u32=4) + pbi_nice(i32=4) +
+    // pbi_start_tvsec(u64=8) + pbi_start_tvusec(u64=8) = 52 bytes.
+    // Wait, we need the correct offset. Let's use a simpler approach.
+    //
+    // On macOS, /proc doesn't exist. Use the nix crate to call getpwuid_r
+    // after getting the UID from proc_pidinfo.
+    //
+    // proc_bsdinfo layout (from XNU bsd/sys/proc_info.h):
+    //   uint32_t pbi_flags          offset 0
+    //   uint32_t pbi_status         offset 4
+    //   uint32_t pbi_xstatus        offset 8
+    //   uint32_t pbi_pid            offset 12
+    //   uint32_t pbi_ppid           offset 16
+    //   uid_t    pbi_uid            offset 20
+    //   gid_t    pbi_gid            offset 24
+    //   uid_t    pbi_ruid           offset 28
+    //   gid_t    pbi_rgid           offset 32
+    const OFF_PBI_RUID: usize = 28;
+
+    let mut buf = [0u8; PROC_BSDINFO_SIZE];
+    let ret = unsafe {
+        macos_proc::proc_pidinfo(
+            pid as c_int,
+            PROC_PIDTBSDINFO,
+            0,
+            buf.as_mut_ptr() as *mut c_void,
+            PROC_BSDINFO_SIZE as c_int,
+        )
+    };
+    if ret <= 0 {
+        return None;
+    }
+
+    let uid = u32::from_ne_bytes([
+        buf[OFF_PBI_RUID],
+        buf[OFF_PBI_RUID + 1],
+        buf[OFF_PBI_RUID + 2],
+        buf[OFF_PBI_RUID + 3],
+    ]);
+
+    let user = nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid)).ok()??;
+    Some(user.name)
+}
+
 // ── Unsupported platform fallback ─────────────────────────────────────────────
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
@@ -449,6 +621,11 @@ fn process_name_impl(_pid: u32) -> Option<String> {
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn process_path_impl(_pid: u32) -> Option<String> {
+    None
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn resolve_owner_impl(_pid: u32) -> Option<String> {
     None
 }
 
@@ -478,5 +655,39 @@ mod tests {
         let fallback = process_name(u32::MAX).unwrap_or_else(|| "unknown".to_string());
         assert_eq!(fallback, "unknown");
         assert!(!fallback.starts_with("pid:"));
+    }
+
+    #[test]
+    fn test_resolve_process_owner_current_process() {
+        // Resolve the owner of the current process. Should return a non-empty
+        // username string regardless of whether running as root or normal user.
+        let pid = std::process::id();
+        let owner = resolve_process_owner(pid);
+        assert!(owner.is_some(), "should resolve current process owner");
+        let name = owner.unwrap();
+        assert!(!name.is_empty(), "owner name should not be empty");
+    }
+
+    #[test]
+    fn test_resolve_process_owner_pid_zero() {
+        // PID 0 should return None (caller handles fallback).
+        assert!(resolve_process_owner(0).is_none());
+    }
+
+    #[test]
+    fn test_resolve_process_owner_nonexistent_pid() {
+        // A PID that almost certainly does not exist should return None
+        // without panicking.
+        assert!(resolve_process_owner(999_999_999).is_none());
+    }
+
+    #[test]
+    fn test_resolve_process_owner_consistent() {
+        // Calling resolve_process_owner twice on the same PID should return
+        // the same result both times.
+        let pid = std::process::id();
+        let first = resolve_process_owner(pid);
+        let second = resolve_process_owner(pid);
+        assert_eq!(first, second);
     }
 }

@@ -1077,3 +1077,50 @@ The agent binary must behave as a native Windows Service to be registered with
   The crate is well-maintained and maps SCM stop requests to process exit,
   which matches the existing Ctrl+C shutdown path. The module is compiled
   only on Windows via `#[cfg(windows)]`.
+
+---
+
+## Process Owner Resolution for os_username (2026-03-20)
+
+### Problem
+
+When the agent runs as root/sudo (required for raw socket capture on Linux and
+macOS), `os_username` was populated via `whoami::username()` -- which returns the
+agent's own effective user, always "root". This made the field useless for
+security leads trying to understand which developer triggered AI activity.
+
+### Decision
+
+Resolve `os_username` per-connection from the process that owns the socket, not
+from the agent's own identity. Each platform uses OS-native APIs:
+
+- **Linux:** Read `/proc/<pid>/status` for the real UID, resolve to username via
+  `nix::unistd::User::from_uid`.
+- **macOS:** Use `proc_pidinfo` with `PROC_PIDTBSDINFO` flavor to get `pbi_ruid`,
+  resolve via `nix::unistd::User::from_uid`.
+- **Windows:** `OpenProcessToken` + `GetTokenInformation(TokenUser)` +
+  `LookupAccountSidW`.
+
+### Fallback behavior
+
+- PID == 0 (DNS events without process attribution): use the agent's own username.
+- PID exists but resolution fails (process exited, permission error): "unknown".
+- Never panic, never block the pipeline. All failures are silent.
+
+### Alternatives considered
+
+- **Keep `whoami::username()` and add a separate `process_owner` field:** rejected
+  because it would require a proto change, ClickHouse migration, and dashboard
+  update for a field that duplicates intent. The existing `os_username` field is
+  the right place for this data.
+- **Use `SUDO_USER` environment variable on Linux:** only works when invoked via
+  sudo, not when running as a systemd service. Does not generalize to macOS or
+  Windows.
+
+### Dashboard: Top machines list
+
+Added a "Top machines" ranked list to the Overview dashboard page alongside "Top
+providers" and "Top users". This gives security leads a useful dimension for
+understanding fleet activity, especially when user attribution is incomplete
+(e.g. DNS events showing "unknown"). Backed by `GET /v1/dashboard/machines`
+querying ClickHouse `GROUP BY hostname ORDER BY count() DESC`.

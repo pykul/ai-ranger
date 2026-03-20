@@ -37,6 +37,38 @@ def test_overview_counts_after_ingest(gateway_api, api_server, enrolled_agent, c
     wait_for_condition(overview_has_events, timeout_secs=30, description="overview total_events > 0")
 
 
+def test_machines_endpoint(gateway_api, api_server, enrolled_agent, clickhouse_client):
+    """GET /v1/dashboard/machines returns per-machine connection counts after ingest."""
+    agent_id = enrolled_agent["agent_id"]
+    event = make_test_event(agent_id, provider="anthropic", provider_host="api.anthropic.com")
+    batch = make_test_batch(agent_id, [event])
+    body = encode_batch(batch)
+
+    def ingest_succeeds() -> bool:
+        return gateway_api.ingest(agent_id, body).status_code == 200
+
+    wait_for_condition(ingest_succeeds, timeout_secs=15, description="ingest POST 200")
+    wait_for_clickhouse_event(clickhouse_client, agent_id, "anthropic")
+
+    def machines_has_data() -> bool:
+        resp = api_server.machines(days=7)
+        if resp.status_code != 200:
+            return False
+        data = resp.json()
+        return data is not None and len(data) > 0
+
+    wait_for_condition(machines_has_data, timeout_secs=15, description="machines endpoint has data")
+
+    resp = api_server.machines(days=7)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) > 0
+    entry = data[0]
+    assert "machine_hostname" in entry
+    assert "connections" in entry
+    assert entry["connections"] > 0
+
+
 def test_providers_endpoint(gateway_api):
     """GET /v1/agents/providers returns valid TOML with known providers."""
     resp = gateway_api.get_providers()

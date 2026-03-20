@@ -142,6 +142,43 @@ func (s *ClickHouseStore) GetUsers(ctx context.Context, days int, provider strin
 	return results, nil
 }
 
+// MachineActivity holds per-machine activity data.
+type MachineActivity struct {
+	MachineHostname string `json:"machine_hostname"`
+	Connections     uint64 `json:"connections"`
+}
+
+// maxMachineResults caps the number of machines returned to prevent unbounded queries.
+const maxMachineResults = 50
+
+// GetMachines returns per-machine connection counts for the given time range.
+func (s *ClickHouseStore) GetMachines(ctx context.Context, days int) ([]MachineActivity, error) {
+	query := fmt.Sprintf(`
+		SELECT hostname, count() AS connections
+		FROM %s
+		WHERE timestamp > now() - INTERVAL ? DAY
+		GROUP BY hostname
+		ORDER BY connections DESC
+		LIMIT ?
+	`, constants.ClickHouseEventsTable)
+
+	rows, err := s.conn.Query(ctx, query, days, maxMachineResults)
+	if err != nil {
+		return nil, fmt.Errorf("query machines: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []MachineActivity
+	for rows.Next() {
+		var m MachineActivity
+		if err := rows.Scan(&m.MachineHostname, &m.Connections); err != nil {
+			return nil, fmt.Errorf("scan machine row: %w", err)
+		}
+		results = append(results, m)
+	}
+	return results, nil
+}
+
 // TrafficPoint holds a single timeseries data point.
 type TrafficPoint struct {
 	Timestamp   time.Time `json:"timestamp"`

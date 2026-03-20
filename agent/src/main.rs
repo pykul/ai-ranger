@@ -250,7 +250,16 @@ async fn async_main(cli: Cli, pre_enrolled: Option<identity::config::AgentConfig
         ) {
             Ok(trace) => Some(trace),
             Err(e) => {
-                eprintln!("[ai-ranger] ETW DNS-Client monitoring unavailable: {e}");
+                let msg = e.to_string();
+                if msg.contains("Access is denied") {
+                    eprintln!(
+                        "[ai-ranger] ETW DNS-Client monitoring requires Administrator privileges."
+                    );
+                    eprintln!("[ai-ranger] Run this binary as Administrator (right-click -> Run as administrator),");
+                    eprintln!("[ai-ranger] or install as a Windows Service: scripts\\install\\windows.ps1");
+                } else {
+                    eprintln!("[ai-ranger] ETW DNS-Client monitoring unavailable: {e}");
+                }
                 None
             }
         }

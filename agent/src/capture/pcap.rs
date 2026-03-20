@@ -220,7 +220,11 @@ mod tests {
         // Handshake header
         buf.push(TLS_HANDSHAKE_CLIENT_HELLO);
         let hl = hello_body_len as u32;
-        buf.extend_from_slice(&[((hl >> 16) & 0xff) as u8, ((hl >> 8) & 0xff) as u8, (hl & 0xff) as u8]);
+        buf.extend_from_slice(&[
+            ((hl >> 16) & 0xff) as u8,
+            ((hl >> 8) & 0xff) as u8,
+            (hl & 0xff) as u8,
+        ]);
         // ClientHello body
         buf.extend_from_slice(&[0x03, 0x03]); // TLS 1.2
         buf.extend_from_slice(&[0u8; 32]); // random
@@ -229,7 +233,7 @@ mod tests {
         buf.extend_from_slice(&[0x00, 0x2f]); // one cipher suite
         buf.push(1); // compression methods length
         buf.push(0); // null compression
-        // Extensions
+                     // Extensions
         buf.extend_from_slice(&(ext_len as u16).to_be_bytes());
         // SNI extension
         buf.extend_from_slice(&TLS_EXT_SNI.to_be_bytes());

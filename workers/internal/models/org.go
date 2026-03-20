@@ -54,3 +54,30 @@ type Agent struct {
 
 // TableName overrides the default GORM table name.
 func (Agent) TableName() string { return "agents" }
+
+// OrgSettings stores per-org configuration such as the alerting webhook URL.
+// One row per organization. Mirrors gateway/models/org_settings.py.
+type OrgSettings struct {
+	ID         uuid.UUID `gorm:"type:uuid;primaryKey"`
+	OrgID      uuid.UUID `gorm:"type:uuid;uniqueIndex;not null"`
+	WebhookURL *string   `gorm:"column:webhook_url"`
+	CreatedAt  time.Time `gorm:"autoCreateTime"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime"`
+}
+
+// TableName overrides the default GORM table name.
+func (OrgSettings) TableName() string { return "org_settings" }
+
+// KnownProvider tracks which AI providers have been seen for each org.
+// Used for new-provider-first-seen alerting. The unique constraint on
+// (org_id, provider) ensures only one row per org-provider pair.
+// Mirrors gateway/models/known_provider.py.
+type KnownProvider struct {
+	ID          uuid.UUID `gorm:"type:uuid;primaryKey"`
+	OrgID       uuid.UUID `gorm:"type:uuid;not null"`
+	Provider    string    `gorm:"not null"`
+	FirstSeenAt time.Time `gorm:"not null;autoCreateTime"`
+}
+
+// TableName overrides the default GORM table name.
+func (KnownProvider) TableName() string { return "known_providers" }

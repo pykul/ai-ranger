@@ -43,6 +43,9 @@ windows = { version = "0.62", features = [
 ] }
 # ETW DNS-Client provider for DNS resolution monitoring (IPv6 coverage on Windows).
 ferrisetw = "1.2"
+# Windows Service Control Manager integration. Lets the agent binary run as a
+# Windows Service with proper start/stop lifecycle, no external wrapper needed.
+windows-service = "0.7"
 
 [target.'cfg(unix)'.dependencies]
 # AF_PACKET (Linux) and BPF /dev/bpf* (macOS) - both kernel built-ins, no libpcap.

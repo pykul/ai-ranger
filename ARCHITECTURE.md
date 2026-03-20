@@ -100,7 +100,8 @@ ai-ranger/
 ├── agent/                      # Rust - the on-machine capture agent
 │   ├── Makefile
 │   ├── src/
-│   │   ├── main.rs             # Thin wiring - CLI, config, task spawning, shutdown
+│   │   ├── main.rs             # Thin wiring - CLI, config, task spawning, shutdown + Windows Service dispatch
+│   │   ├── service.rs          # Windows Service integration (windows-service crate, cfg(windows))
 │   │   ├── event.rs            # AiConnectionEvent struct + constructor
 │   │   ├── config.rs           # config.toml parsing (AppConfig, AgentSection, OutputConfig)
 │   │   ├── pipeline.rs         # Packet-to-event transformation (classify, resolve, construct)
@@ -147,7 +148,12 @@ ai-ranger/
 │   │   ├── enroll.py          # POST /v1/agents/enroll
 │   │   └── providers.py       # GET /v1/agents/providers
 │   ├── models/                # SQLAlchemy ORM models + Pydantic request/response schemas
-│   │   ├── orm.py             # SQLAlchemy models (Organization, EnrollmentToken, Agent)
+│   │   ├── base.py            # DeclarativeBase shared by all models
+│   │   ├── org.py             # Organization
+│   │   ├── agent.py           # Agent
+│   │   ├── token.py           # EnrollmentToken
+│   │   ├── org_settings.py    # OrgSettings (webhook URL)
+│   │   ├── known_provider.py  # KnownProvider (new-provider tracking)
 │   │   ├── events.py          # Pydantic schemas for event-related requests/responses
 │   │   └── enrollment.py      # Pydantic schemas for enrollment requests/responses
 │   ├── alembic/               # Versioned Postgres migrations (source of truth for schema)
@@ -172,20 +178,24 @@ ai-ranger/
 │   │       └── Dockerfile      # Produces a single-binary image for the API server
 │   ├── internal/
 │   │   ├── models/
-│   │   │   └── models.go       # GORM structs mirroring gateway SQLAlchemy models
+│   │   │   ├── org.go          # GORM structs: Organization, Agent, EnrollmentToken, OrgSettings, KnownProvider
+│   │   │   └── event.go        # ClickHouseEvent struct
 │   │   ├── consumer/
-│   │   │   └── rabbitmq.go     # RabbitMQ consumer, worker pool
+│   │   │   └── rabbitmq.go     # RabbitMQ consumer, worker pool, new-provider check
 │   │   ├── writer/
 │   │   │   ├── clickhouse.go   # Batch write events to ClickHouse (plain SQL, no ORM)
 │   │   │   └── postgres.go     # Update agent last_seen via GORM
+│   │   ├── webhook/
+│   │   │   └── notifier.go     # New-provider-first-seen alerting (check + webhook POST)
 │   │   ├── api/
 │   │   │   ├── router.go       # Chi router setup
 │   │   │   ├── dashboard.go    # Dashboard query handlers
 │   │   │   ├── fleet.go        # Fleet management handlers
-│   │   │   └── tokens.go       # Token management handlers
+│   │   │   ├── tokens.go       # Token management handlers
+│   │   │   └── settings.go     # Org settings handlers (webhook URL CRUD + test)
 │   │   └── store/
 │   │       ├── clickhouse.go   # ClickHouse query helpers (plain SQL via clickhouse-go)
-│   │       └── postgres.go     # Postgres query helpers via GORM
+│   │       └── postgres.go     # Postgres query helpers via GORM (fleet, tokens, settings)
 │   ├── proto/                  # Symlink to proto/gen/go
 │   └── go.mod
 │
@@ -223,6 +233,22 @@ ai-ranger/
 │       ├── definitions.json.template  # Template with ${RABBITMQ_DEFAULT_USER/PASS} placeholders
 │       ├── docker-entrypoint.sh       # Runs envsubst on template, then starts RabbitMQ
 │       └── rabbitmq.conf             # Loads definitions.json (generated at startup)
+│
+├── scripts/
+│   ├── install-deps/           # Development environment setup per OS
+│   │   ├── linux.sh
+│   │   ├── macos.sh
+│   │   └── windows.ps1
+│   ├── install/                # Agent service installers (download, enroll, register service)
+│   │   ├── linux.sh            # systemd service installer
+│   │   ├── macos.sh            # launchd daemon installer
+│   │   └── windows.ps1         # Windows Service installer (PowerShell)
+│   ├── update/                 # Agent binary update (stop, download, restart, no re-enroll)
+│   │   ├── linux.sh
+│   │   ├── macos.sh
+│   │   └── windows.ps1
+│   └── lib/
+│       └── download.sh         # Shared bash functions: detect_target, download_binary, verify_checksum
 │
 ├── docs/                       # Docusaurus (Phase 4+)
 │   └── docs/
@@ -987,16 +1013,54 @@ with **Alembic** handling versioned migrations in `gateway/alembic/versions/`. T
 `init.sql` for Postgres -- `alembic upgrade head` runs on gateway container startup and
 creates or migrates tables automatically.
 
-Three tables:
+Five tables:
 
 - **organizations** - id (UUID PK), name, slug (unique), created_at
 - **enrollment_tokens** - id (UUID PK), org_id (FK -> organizations), token_hash (SHA256, unique), label, created_by, expires_at, max_uses, used_count, created_at
 - **agents** - id (UUID PK, generated on device), org_id (FK -> organizations), hostname, os_username, os, agent_version, enrolled_at, last_seen_at, status
+- **org_settings** - id (UUID PK), org_id (FK -> organizations, unique), webhook_url (TEXT, nullable), created_at, updated_at. One row per org. Stores the alerting webhook URL.
+- **known_providers** - id (UUID PK), org_id (FK -> organizations), provider (TEXT), first_seen_at (TIMESTAMPTZ). Unique constraint on (org_id, provider). Tracks which providers have been seen for each org to power new-provider-first-seen alerting.
 
-The SQLAlchemy models in `gateway/models/orm.py` are the **source of truth** for the Postgres
-schema. The GORM structs in `workers/internal/models/models.go` must mirror them exactly.
+The SQLAlchemy models in `gateway/models/` are the **source of truth** for the Postgres
+schema. The GORM structs in `workers/internal/models/org.go` must mirror them exactly.
 Any Alembic migration that adds or changes a column must be accompanied by the corresponding
 GORM struct update in the same commit.
+
+### Alerting: new provider first seen
+
+When the ingest worker processes an event for a provider that has never been seen
+before for that organization, it inserts a row into `known_providers` (using
+`ON CONFLICT DO NOTHING` for race safety) and fires a webhook POST to the org's
+configured webhook URL. The webhook has a 10-second timeout. Failed webhooks are
+logged but not retried and never block event ingest.
+
+```
+Ingest Worker receives EventBatch
+    |
+    v
+Write events to ClickHouse
+    |
+    v
+For each unique provider in batch:
+    INSERT INTO known_providers ... ON CONFLICT DO NOTHING
+    |
+    Was a new row inserted?
+    |-- No  --> skip (provider already known)
+    |-- Yes --> Look up org_settings.webhook_url
+                |-- Not configured --> skip
+                |-- Configured --> POST webhook payload (10s timeout, fire-and-forget)
+```
+
+Dashboard API endpoints for webhook configuration:
+- `GET /v1/admin/settings` -- returns current org settings with masked webhook URL
+- `PUT /v1/admin/settings` -- updates webhook URL (must be HTTPS)
+- `POST /v1/admin/settings/test` -- fires a test webhook with `"event": "test"`
+
+**Network context note:** The webhook POST is fired from the ingest worker container's
+network position. An admin who configures an internal URL (e.g. `https://10.0.0.1/hook`)
+will cause the ingest worker to POST to that address. This is by design for internal
+tooling integration but admins should be aware that the webhook fires from the backend
+network, not from the dashboard user's browser.
 
 ### ClickHouse - events and timeseries
 

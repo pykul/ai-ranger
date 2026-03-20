@@ -54,3 +54,8 @@ export interface FleetAgent {
   EnrolledAt: string;
   LastSeenAt: string | null;
 }
+
+export interface OrgSettings {
+  org_id: string;
+  webhook_url: string | null;
+}

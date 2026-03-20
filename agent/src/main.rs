@@ -9,6 +9,8 @@ mod output;
 mod pipeline;
 mod process;
 mod proto;
+#[cfg(windows)]
+mod service;
 
 use config::{AppConfig, OutputConfig};
 use event::AiConnectionEvent;
@@ -58,7 +60,38 @@ struct Cli {
 }
 
 fn main() {
-    let cli = <Cli as clap::Parser>::parse();
+    // On Windows, attempt to start as a Windows Service first. If the binary
+    // was launched by the Service Control Manager, this call blocks until the
+    // service stops. If launched from the command line, it returns an error
+    // and we fall through to the normal CLI entry point.
+    #[cfg(windows)]
+    {
+        if let Err(_e) = service::run_as_service() {
+            // Not started by the SCM -- fall through to CLI mode.
+        } else {
+            return;
+        }
+    }
+
+    main_inner(true);
+}
+
+/// Core agent entry point shared by CLI mode and Windows Service mode.
+///
+/// When `parse_cli` is true, CLI arguments are parsed from the process args.
+/// When false (Windows Service mode), the agent runs with default CLI flags
+/// (no enrollment, load config from disk).
+pub(crate) fn main_inner(parse_cli: bool) {
+    let cli = if parse_cli {
+        <Cli as clap::Parser>::parse()
+    } else {
+        Cli {
+            config: std::path::PathBuf::from("config.toml"),
+            enroll: false,
+            token: None,
+            backend: None,
+        }
+    };
 
     // Enrollment uses reqwest::blocking which creates its own runtime.
     // Handle it before entering the tokio async runtime to avoid nesting.

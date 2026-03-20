@@ -350,6 +350,45 @@ ai-ranger --enroll --token=tok_your_token --backend=https://your-instance.com/in
 # then start as daemon separately
 ```
 
+### One-command service installation
+
+The install scripts download the latest binary, enroll with your backend, and
+register a background service that starts on boot. One command, all three
+platforms:
+
+```bash
+# Linux (systemd)
+sudo bash scripts/install/linux.sh --token=tok_your_token --backend=https://ranger.example.com/ingest
+
+# macOS (launchd)
+sudo bash scripts/install/macos.sh --token=tok_your_token --backend=https://ranger.example.com/ingest
+
+# Windows (PowerShell, run as Administrator)
+powershell -ExecutionPolicy Bypass -File scripts\install\windows.ps1 -Token tok_your_token -Backend https://ranger.example.com/ingest
+```
+
+After installation the agent runs as a system service. It starts automatically
+on boot, restarts on failure, and reports to the configured backend with no
+terminal window required. Each script prints the enrollment config path after
+completion.
+
+### Updating the agent
+
+Update scripts stop the running service, download the latest binary, verify
+the checksum, replace the existing binary, and restart the service. Enrollment
+config is preserved across updates.
+
+```bash
+# Linux
+sudo bash scripts/update/linux.sh
+
+# macOS
+sudo bash scripts/update/macos.sh
+
+# Windows (PowerShell, run as Administrator)
+powershell -ExecutionPolicy Bypass -File scripts\update\windows.ps1
+```
+
 ---
 
 ## Supported AI providers

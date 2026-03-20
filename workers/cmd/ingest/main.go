@@ -14,6 +14,7 @@ import (
 	"github.com/pykul/ai-ranger/workers/internal/config"
 	"github.com/pykul/ai-ranger/workers/internal/consumer"
 	"github.com/pykul/ai-ranger/workers/internal/database"
+	"github.com/pykul/ai-ranger/workers/internal/webhook"
 	"github.com/pykul/ai-ranger/workers/internal/writer"
 )
 
@@ -36,6 +37,7 @@ func main() {
 
 	chWriter := writer.NewClickHouseWriter(ch)
 	pgWriter := writer.NewPostgresWriter(pg)
+	notifier := webhook.NewNotifier(pg)
 
 	// Graceful shutdown.
 	sigs := make(chan os.Signal, 1)
@@ -46,7 +48,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	if err := consumer.Start(cfg.RabbitMQURL, chWriter, pgWriter); err != nil {
+	if err := consumer.Start(cfg.RabbitMQURL, chWriter, pgWriter, notifier); err != nil {
 		log.Fatalf("[ingest] Consumer error: %v", err)
 	}
 }

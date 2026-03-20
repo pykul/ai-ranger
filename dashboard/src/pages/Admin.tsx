@@ -3,9 +3,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { timeAgo, formatOS } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { FleetAgent } from "@/lib/types";
+import type { FleetAgent, OrgSettings } from "@/lib/types";
 
-type Tab = "fleet" | "tokens";
+type Tab = "fleet" | "tokens" | "settings";
 
 export default function Admin() {
   const [tab, setTab] = useState<Tab>("fleet");
@@ -21,10 +21,14 @@ export default function Admin() {
         <TabButton active={tab === "tokens"} onClick={() => setTab("tokens")}>
           Tokens
         </TabButton>
+        <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
+          Settings
+        </TabButton>
       </div>
 
       {tab === "fleet" && <FleetTab />}
       {tab === "tokens" && <TokensTab />}
+      {tab === "settings" && <SettingsTab />}
     </div>
   );
 }
@@ -359,6 +363,222 @@ function TokensTab() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// -- Settings tab -------------------------------------------------------------
+
+/** HTTPS URL prefix required for webhook URLs. */
+const WEBHOOK_URL_PREFIX = "https://";
+
+function SettingsTab() {
+  const queryClient = useQueryClient();
+  const fleet = useQuery({
+    queryKey: ["fleet"],
+    queryFn: () => api<FleetAgent[]>("/v1/dashboard/fleet"),
+  });
+  const settings = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => api<OrgSettings>("/v1/admin/settings"),
+  });
+
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
+
+  // Resolve org_id from fleet agents (same pattern as TokensTab).
+  const orgId = settings.data?.org_id || fleet.data?.[0]?.OrgID || null;
+
+  const updateSettings = useMutation({
+    mutationFn: (body: { org_id: string; webhook_url: string | null }) =>
+      api<OrgSettings>("/v1/admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+      setEditing(false);
+      setFormError("");
+      setWebhookUrl("");
+    },
+    onError: (err: Error) => {
+      setFormError(err.message || "Failed to update settings");
+    },
+  });
+
+  const testWebhook = useMutation({
+    mutationFn: () =>
+      api<{ status: string }>("/v1/admin/settings/test", {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      setTestResult({ ok: true, message: "Test webhook delivered." });
+    },
+    onError: (err: Error) => {
+      setTestResult({
+        ok: false,
+        message: err.message || "Test webhook failed.",
+      });
+    },
+  });
+
+  function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError("");
+    setTestResult(null);
+
+    if (!orgId) {
+      setFormError("No organization found. Enroll at least one agent first.");
+      return;
+    }
+
+    if (webhookUrl && !webhookUrl.startsWith(WEBHOOK_URL_PREFIX)) {
+      setFormError("Webhook URL must start with https://");
+      return;
+    }
+
+    updateSettings.mutate({
+      org_id: orgId,
+      webhook_url: webhookUrl || null,
+    });
+  }
+
+  function handleClear() {
+    setTestResult(null);
+    if (!orgId) return;
+    updateSettings.mutate({
+      org_id: orgId,
+      webhook_url: null,
+    });
+  }
+
+  function handleTest() {
+    setTestResult(null);
+    testWebhook.mutate();
+  }
+
+  const currentUrl = settings.data?.webhook_url;
+  const hasWebhook = currentUrl !== null && currentUrl !== undefined;
+
+  return (
+    <div className="max-w-xl">
+      <h3 className="text-lg font-medium mb-4">Alerting</h3>
+      <p className="text-sm text-muted-foreground mb-6">
+        Configure a webhook URL to receive alerts when a new AI provider is
+        detected for the first time in your organization.
+      </p>
+
+      {/* Current value */}
+      {!editing && (
+        <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
+              Webhook URL
+            </label>
+            <p className="text-sm font-mono">
+              {hasWebhook ? currentUrl : "Not configured"}
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setEditing(true);
+                setWebhookUrl("");
+                setTestResult(null);
+              }}
+              className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              {hasWebhook ? "Update" : "Configure"}
+            </button>
+            {hasWebhook && (
+              <>
+                <button
+                  onClick={handleTest}
+                  disabled={testWebhook.isPending}
+                  className="rounded border border-border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
+                >
+                  {testWebhook.isPending ? "Sending..." : "Send test"}
+                </button>
+                <button
+                  onClick={handleClear}
+                  className="rounded border border-border px-4 py-2 text-sm text-destructive hover:bg-muted"
+                >
+                  Clear
+                </button>
+              </>
+            )}
+          </div>
+
+          {testResult && (
+            <p
+              className={cn(
+                "text-sm",
+                testResult.ok ? "text-green-700" : "text-destructive"
+              )}
+            >
+              {testResult.message}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Edit form */}
+      {editing && (
+        <form
+          onSubmit={handleSave}
+          className="rounded-lg border border-border bg-card p-4 space-y-4"
+        >
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
+              Webhook URL
+            </label>
+            <input
+              type="url"
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              placeholder="https://hooks.slack.com/services/..."
+              className="w-full rounded border border-border bg-background px-3 py-2 text-sm"
+              autoFocus
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Must be an HTTPS URL. Receives a JSON POST when a new provider is
+              detected. The webhook fires from the backend server, not from your
+              browser.
+            </p>
+          </div>
+
+          {formError && (
+            <p className="text-sm text-destructive">{formError}</p>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={updateSettings.isPending}
+              className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {updateSettings.isPending ? "Saving..." : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(false);
+                setFormError("");
+              }}
+              className="rounded border border-border px-4 py-2 text-sm hover:bg-muted"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

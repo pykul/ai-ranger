@@ -992,3 +992,88 @@ The `make release` target enforces the workflow: clean working tree, on main,
 valid semver tag, push to trigger the build. The release workflow builds all 5
 platform binaries, strips them, packages as archives, generates SHA256
 checksums, and creates a GitHub release with all assets attached.
+
+---
+
+## Phase 4 Decisions
+
+### Service installers: systemd / launchd / Windows Service
+
+Each platform gets a one-command install script that downloads the binary,
+enrolls with the backend, and registers a background service. The alternatives
+considered:
+
+- **Manual binary management** (download, place, write service file by hand):
+  rejected because it is error-prone and users forget to start the agent, it
+  does not survive reboots, and enrollment is a separate manual step. The
+  installer script makes deployment a single command.
+- **Package managers** (apt/brew/choco): rejected because they add packaging
+  maintenance overhead (deb/rpm spec files, Homebrew formula, Chocolatey
+  nuspec) for a project that already publishes standalone binaries. Package
+  manager support can be added later without changing the install scripts.
+- **Container-based agent**: rejected because the agent needs raw socket access
+  to the host network stack, which is awkward from inside a container and
+  defeats the purpose of lightweight host-level observability.
+
+systemd was chosen for Linux because it is the standard service manager on all
+modern distributions. launchd was chosen for macOS because it is the only
+supported daemon management system. Windows Service was chosen because it
+provides proper lifecycle management (start, stop, restart, status) through
+the Service Control Manager. The `windows-service` Rust crate adds native
+SCM integration with minimal code.
+
+### Update by reinstall, not auto-update
+
+The update scripts stop the service, download the latest binary, verify the
+checksum, replace the binary, and restart the service. The agent does not
+auto-update.
+
+Auto-update was rejected because: it requires a polling mechanism that conflicts
+with the zero-call-home principle, organizations need to control when updates
+happen (change windows, compliance), and silent binary replacement is a supply
+chain risk. Explicit update scripts are transparent and auditable. The admin
+runs the script when they choose to update.
+
+### Webhook-only alerting (not email, Slack, or PagerDuty)
+
+When a new AI provider is detected for the first time in an organization, the
+ingest worker fires a webhook POST to a configured URL. Direct integrations
+with email, Slack, PagerDuty, and other notification services were considered
+and rejected.
+
+- **Email**: requires SMTP configuration, template management, and delivery
+  reliability handling. Not worth the complexity for a self-hosted tool.
+- **Slack/PagerDuty/OpsGenie**: requires API tokens, OAuth flows, and
+  per-service integration code. Each service has its own API contract.
+- **Webhooks**: universal. They work with Slack (incoming webhooks),
+  PagerDuty (events API), Datadog, OpsGenie, Zapier, and any custom
+  system. One integration point covers all downstream services.
+
+The webhook approach pushes the integration problem to the receiving end,
+which already has tooling for it. A Slack incoming webhook URL, a PagerDuty
+events API endpoint, or a custom Lambda function all accept HTTP POSTs.
+
+### ON CONFLICT DO NOTHING for known_providers race safety
+
+Two concurrent ingest workers processing batches that contain the same new
+provider could both attempt to insert into known_providers simultaneously.
+Using `INSERT ... ON CONFLICT (org_id, provider) DO NOTHING` ensures only one
+row is created. Only the inserter that wins the race fires the webhook. The
+loser sees `RowsAffected == 0` and skips silently. This avoids duplicate
+webhook deliveries without requiring external locking or advisory locks.
+
+### Windows Service via windows-service crate
+
+The agent binary must behave as a native Windows Service to be registered with
+`New-Service` and respond correctly to `Stop-Service`. The alternatives:
+
+- **NSSM** (Non-Sucking Service Manager): rejected because it is an external
+  dependency. The agent is supposed to be a standalone binary with zero
+  external dependencies.
+- **sc.exe without SCM protocol**: rejected because the agent would not respond
+  to stop signals, making `Stop-Service` fail and requiring `taskkill`.
+- **windows-service crate**: adds approximately 40 lines of boilerplate to
+  implement the SCM dispatcher, start/stop handling, and status reporting.
+  The crate is well-maintained and maps SCM stop requests to process exit,
+  which matches the existing Ctrl+C shutdown path. The module is compiled
+  only on Windows via `#[cfg(windows)]`.

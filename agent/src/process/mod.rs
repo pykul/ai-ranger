@@ -228,9 +228,9 @@ fn resolve_owner_impl(pid: u32) -> Option<String> {
         LookupAccountSidW(
             None,
             sid,
-            PWSTR(name_buf.as_mut_ptr()),
+            Some(PWSTR(name_buf.as_mut_ptr())),
             &mut name_len,
-            PWSTR(domain_buf.as_mut_ptr()),
+            Some(PWSTR(domain_buf.as_mut_ptr())),
             &mut domain_len,
             &mut sid_type,
         )

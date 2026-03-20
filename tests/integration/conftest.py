@@ -112,12 +112,34 @@ def api_server(api_client) -> APIServer:
 
 # -- Database ------------------------------------------------------------------
 
+POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", "5432"))
+POSTGRES_USER = os.environ.get("POSTGRES_USER", "ranger")
+POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "ranger")
+POSTGRES_DB = os.environ.get("POSTGRES_DB", "ranger")
+
+
 @pytest.fixture
 def clickhouse_client(docker_stack):
     """ClickHouse HTTP client for verification queries."""
     client = clickhouse_connect.get_client(host=CLICKHOUSE_HOST, port=CLICKHOUSE_PORT)
     yield client
     client.close()
+
+
+@pytest.fixture
+def postgres_conn(docker_stack):
+    """Direct psycopg connection to Postgres for verification queries."""
+    import psycopg
+    conn = psycopg.connect(
+        host=POSTGRES_HOST,
+        port=POSTGRES_PORT,
+        user=POSTGRES_USER,
+        password=POSTGRES_PASSWORD,
+        dbname=POSTGRES_DB,
+    )
+    yield conn
+    conn.close()
 
 
 # -- Agent enrollment ----------------------------------------------------------

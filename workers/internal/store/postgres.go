@@ -74,3 +74,39 @@ func (s *PostgresStore) RevokeAgent(id uuid.UUID) error {
 	}
 	return nil
 }
+
+// GetOrgSettings returns the settings for the first organization.
+// In a single-org deployment (the standard case) this returns the only org's settings.
+func (s *PostgresStore) GetOrgSettings() (*models.OrgSettings, error) {
+	var settings models.OrgSettings
+	err := s.db.Order("created_at ASC").First(&settings).Error
+	if err != nil {
+		return nil, err
+	}
+	return &settings, nil
+}
+
+// UpsertOrgSettings creates or updates the webhook URL for an organization.
+func (s *PostgresStore) UpsertOrgSettings(orgID uuid.UUID, webhookURL *string) error {
+	var existing models.OrgSettings
+	err := s.db.Where("org_id = ?", orgID).First(&existing).Error
+	if err != nil {
+		// No existing row -- create one.
+		record := models.OrgSettings{
+			ID:         uuid.New(),
+			OrgID:      orgID,
+			WebhookURL: webhookURL,
+		}
+		if err := s.db.Create(&record).Error; err != nil {
+			return fmt.Errorf("create org settings: %w", err)
+		}
+		return nil
+	}
+
+	// Update existing row.
+	existing.WebhookURL = webhookURL
+	if err := s.db.Save(&existing).Error; err != nil {
+		return fmt.Errorf("update org settings: %w", err)
+	}
+	return nil
+}

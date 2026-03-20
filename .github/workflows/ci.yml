@@ -127,6 +127,37 @@ jobs:
             throw "No provider event detected in agent output"
           }
 
+  # ── Script validation ──────────────────────────────────────────────────
+  scripts:
+    name: Script syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate bash scripts (bash -n)
+        run: |
+          bash -n scripts/lib/download.sh
+          bash -n scripts/install/linux.sh
+          bash -n scripts/install/macos.sh
+          bash -n scripts/update/linux.sh
+          bash -n scripts/update/macos.sh
+
+      - name: Validate PowerShell scripts
+        shell: pwsh
+        run: |
+          foreach ($script in @("scripts/install/windows.ps1", "scripts/update/windows.ps1")) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script), [ref]$null, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              Write-Error "Syntax errors in ${script}:"
+              $errors | ForEach-Object { Write-Error $_.ToString() }
+              exit 1
+            }
+            Write-Host "OK: $script"
+          }
+
   # ── Proto generation ───────────────────────────────────────────────────
   proto:
     name: Proto

@@ -69,3 +69,18 @@ class APIServer:
         """DELETE /v1/admin/agents/:id — revokes agent."""
         resp = self._client.delete(f"/v1/admin/agents/{agent_id}")
         resp.raise_for_status()
+
+    def get_settings(self) -> httpx.Response:
+        """GET /v1/admin/settings - returns org settings (masked webhook URL)."""
+        return self._client.get("/v1/admin/settings")
+
+    def update_settings(self, org_id: str, webhook_url: str | None) -> httpx.Response:
+        """PUT /v1/admin/settings - updates webhook URL."""
+        return self._client.put(
+            "/v1/admin/settings",
+            json={"org_id": org_id, "webhook_url": webhook_url},
+        )
+
+    def test_webhook(self) -> httpx.Response:
+        """POST /v1/admin/settings/test - fires a test webhook."""
+        return self._client.post("/v1/admin/settings/test")

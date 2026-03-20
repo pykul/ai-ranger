@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pykul/ai-ranger/workers/internal/constants"
+	"github.com/pykul/ai-ranger/workers/internal/webhook"
 	"github.com/pykul/ai-ranger/workers/internal/writer"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -21,7 +22,7 @@ const connectRetryIntervalSecs = 3
 // Start connects to RabbitMQ and consumes from the ingest queue.
 // Automatically reconnects if the connection drops after initial connect.
 // Blocks indefinitely until an unrecoverable error occurs.
-func Start(url string, chWriter *writer.ClickHouseWriter, pgWriter *writer.PostgresWriter) error {
+func Start(url string, chWriter *writer.ClickHouseWriter, pgWriter *writer.PostgresWriter, notifier *webhook.Notifier) error {
 	for {
 		conn, err := dialWithRetry(url)
 		if err != nil {
@@ -41,7 +42,7 @@ func Start(url string, chWriter *writer.ClickHouseWriter, pgWriter *writer.Postg
 		log.Printf("[ingest] Consuming from %s", constants.RabbitMQQueue)
 		done := make(chan struct{})
 		go func() {
-			consumeMessages(msgs, chWriter, pgWriter)
+			consumeMessages(msgs, chWriter, pgWriter, notifier)
 			close(done)
 		}()
 
@@ -111,7 +112,16 @@ func setupChannel(conn *amqp.Connection) (<-chan amqp.Delivery, error) {
 // Each message is deserialized as an EventBatch and written to ClickHouse and
 // Postgres independently. A failure in one writer does not block the other.
 // The message is only nacked if deserialization or the ClickHouse write fails.
-func consumeMessages(msgs <-chan amqp.Delivery, chWriter *writer.ClickHouseWriter, pgWriter *writer.PostgresWriter) {
+//
+// New-provider webhook checks are fired asynchronously in separate goroutines
+// after the message is acked. This is a deliberate design decision: webhook
+// delivery (which has a 10-second timeout per call) must never block message
+// acknowledgment or slow down event ingest. A batch with N new providers would
+// otherwise block for up to N*10 seconds before the ack. Firing in goroutines
+// means the message is acked immediately after the ClickHouse write, and
+// webhook delivery happens in the background. Failed or slow webhooks are
+// logged but have zero impact on ingest throughput.
+func consumeMessages(msgs <-chan amqp.Delivery, chWriter *writer.ClickHouseWriter, pgWriter *writer.PostgresWriter, notifier *webhook.Notifier) {
 	for msg := range msgs {
 		var batch rangerpb.EventBatch
 		if err := proto.Unmarshal(msg.Body, &batch); err != nil {
@@ -134,5 +144,48 @@ func consumeMessages(msgs <-chan amqp.Delivery, chWriter *writer.ClickHouseWrite
 			continue
 		}
 		_ = msg.Ack(false)
+
+		// Fire new-provider checks asynchronously after ack.
+		// Each provider check runs in its own goroutine so webhook
+		// delivery (up to 10s timeout) never blocks the consumer loop.
+		fireNewProviderChecks(&batch, notifier)
+	}
+}
+
+// fireNewProviderChecks extracts unique providers from a batch and fires
+// a goroutine for each one to check known_providers and deliver webhooks.
+// Each goroutine includes a recover to prevent panics from crashing the
+// consumer loop. The notifier handles dedup via the known_providers table
+// and fires webhooks only for genuinely new providers.
+func fireNewProviderChecks(batch *rangerpb.EventBatch, notifier *webhook.Notifier) {
+	if notifier == nil || len(batch.Events) == 0 {
+		return
+	}
+
+	// Deduplicate providers within this batch.
+	seen := make(map[string]struct{})
+	for _, event := range batch.Events {
+		if event.Provider == "" {
+			continue
+		}
+		if _, ok := seen[event.Provider]; ok {
+			continue
+		}
+		seen[event.Provider] = struct{}{}
+
+		// Capture loop variables for the goroutine closure.
+		agentID := event.AgentId
+		provider := event.Provider
+		hostname := event.MachineHostname
+		osUsername := event.OsUsername
+
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[webhook] Panic in new-provider check for %s: %v", provider, r)
+				}
+			}()
+			notifier.CheckAndNotifyByAgentID(agentID, provider, hostname, osUsername)
+		}()
 	}
 }

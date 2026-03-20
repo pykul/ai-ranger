@@ -59,6 +59,12 @@ const RouteAdminTokensDelete = "/v1/admin/tokens/{id}"
 // RouteAdminAgentsDelete revokes an agent.
 const RouteAdminAgentsDelete = "/v1/admin/agents/{id}"
 
+// RouteAdminSettings returns or updates org settings (webhook URL).
+const RouteAdminSettings = "/v1/admin/settings"
+
+// RouteAdminSettingsTest fires a test webhook to the configured URL.
+const RouteAdminSettingsTest = "/v1/admin/settings/test"
+
 // RouteAuthLogin is the login endpoint for dashboard authentication.
 const RouteAuthLogin = "/v1/auth/login"
 
@@ -99,6 +105,18 @@ const CaptureModeDNSSNI = "dns_sni"
 
 // CaptureModeMITM is the ClickHouse enum value for MITM capture mode (Phase 5+).
 const CaptureModeMITM = "mitm"
+
+// -- Webhook ------------------------------------------------------------------
+
+// WebhookTimeoutSecs is the HTTP timeout for outbound webhook calls.
+// Failed webhooks are logged but not retried to avoid blocking event ingest.
+const WebhookTimeoutSecs = 10
+
+// WebhookEventNewProvider is the event type string for new-provider-detected webhooks.
+const WebhookEventNewProvider = "new_provider_detected"
+
+// WebhookEventTest is the event type string for test webhook payloads.
+const WebhookEventTest = "test"
 
 // -- Retry --------------------------------------------------------------------
 

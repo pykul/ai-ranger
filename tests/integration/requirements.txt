@@ -4,3 +4,4 @@ pytest-asyncio>=0.24
 asyncpg>=0.30
 clickhouse-connect>=0.8
 protobuf>=5.29
+psycopg[binary]>=3.1

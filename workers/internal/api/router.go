@@ -11,6 +11,7 @@ import (
 	"github.com/pykul/ai-ranger/workers/internal/config"
 	"github.com/pykul/ai-ranger/workers/internal/constants"
 	"github.com/pykul/ai-ranger/workers/internal/store"
+	"github.com/pykul/ai-ranger/workers/internal/webhook"
 )
 
 // NewRouter creates a Chi router with all API routes registered.
@@ -23,16 +24,17 @@ func NewRouter(pg *gorm.DB, ch clickhouse.Conn, cfg config.Config) chi.Router {
 
 	chStore := store.NewClickHouseStore(ch)
 	pgStore := store.NewPostgresStore(pg)
+	notifier := webhook.NewNotifier(pg)
 
 	// --- Unprotected routes (no auth required) ---
 
-	// Health check — used by Docker and k8s probes
+	// Health check -- used by Docker and k8s probes
 	r.Get(constants.RouteHealth, healthCheck())
 
 	// Swagger UI at /docs/*
 	r.Get("/docs/*", httpSwagger.WrapHandler)
 
-	// Auth endpoints — must be accessible without a token
+	// Auth endpoints -- must be accessible without a token
 	r.Post(constants.RouteAuthLogin, authLogin(cfg))
 	r.Post(constants.RouteAuthRefresh, authRefresh(cfg))
 
@@ -54,6 +56,11 @@ func NewRouter(pg *gorm.DB, ch clickhouse.Conn, cfg config.Config) chi.Router {
 		r.Post(constants.RouteAdminTokensCreate, tokenCreate(pgStore))
 		r.Delete(constants.RouteAdminTokensDelete, tokenDelete(pgStore))
 		r.Delete(constants.RouteAdminAgentsDelete, agentRevoke(pgStore))
+
+		// Settings endpoints
+		r.Get(constants.RouteAdminSettings, settingsGet(pgStore))
+		r.Put(constants.RouteAdminSettings, settingsUpdate(pgStore))
+		r.Post(constants.RouteAdminSettingsTest, settingsTest(pgStore, notifier))
 	})
 
 	return r

@@ -107,6 +107,12 @@ hostnames = ["openai.azure.com"]
 docs_url = "https://learn.microsoft.com/en-us/azure/ai-services/openai"
 
 [[providers]]
+name = "microsoft_copilot"
+display_name = "Microsoft Copilot"
+hostnames = ["copilot.microsoft.com", "copilot.cloud.microsoft", "sydney.bing.com"]
+docs_url = "https://learn.microsoft.com/en-us/copilot"
+
+[[providers]]
 name = "stability"
 display_name = "Stability AI"
 hostnames = ["api.stability.ai"]

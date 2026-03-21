@@ -18,6 +18,7 @@ const providerNames: Record<string, string> = {
   azure_openai: "Azure OpenAI",
   stability: "Stability AI",
   ollama: "Ollama",
+  microsoft_copilot: "Microsoft Copilot",
 };
 
 export function formatProvider(raw: string): string {

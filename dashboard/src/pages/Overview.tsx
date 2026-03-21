@@ -193,8 +193,8 @@ export default function Overview() {
           </h3>
           <div className="space-y-3">
             {users.data?.map((u) => (
-              <div key={u.os_username} className="flex justify-between items-center">
-                <span className="text-sm">{u.os_username}</span>
+              <div key={u.os_username} className="flex justify-between items-center gap-2 min-w-0">
+                <span className="text-sm truncate">{u.os_username}</span>
                 <span className="text-sm text-muted-foreground">
                   {formatNumber(u.connections)}
                 </span>
@@ -210,8 +210,8 @@ export default function Overview() {
           <h3 className="text-sm font-medium text-muted-foreground mb-4">Top machines</h3>
           <div className="space-y-3">
             {machines.data?.map((m) => (
-              <div key={m.machine_hostname} className="flex justify-between items-center">
-                <span className="text-sm">{m.machine_hostname}</span>
+              <div key={m.machine_hostname} className="flex justify-between items-center gap-2 min-w-0">
+                <span className="text-sm truncate">{m.machine_hostname}</span>
                 <span className="text-sm text-muted-foreground">
                   {formatNumber(m.connections)}
                 </span>

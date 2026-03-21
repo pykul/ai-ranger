@@ -247,7 +247,7 @@ export default function Events() {
       </div>
 
       {/* Table */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
+      <div className="rounded-lg border border-border bg-card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/50">
@@ -413,9 +413,9 @@ function EventRowComponent({
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div style={{ overflowWrap: "anywhere" }}>
       <span className="text-muted-foreground">{label}: </span>
-      <span>{value}</span>
+      {value}
     </div>
   );
 }

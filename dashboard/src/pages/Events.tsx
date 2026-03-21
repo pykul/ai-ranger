@@ -248,17 +248,7 @@ export default function Events() {
 
       {/* Table */}
       <div className="rounded-lg border border-border bg-card overflow-x-auto">
-        <table className="w-full text-sm table-fixed">
-          <colgroup>
-            <col style={{ width: "11%" }} />{/* Time */}
-            <col style={{ width: "10%" }} />{/* User */}
-            <col style={{ width: "11%" }} />{/* Machine */}
-            <col style={{ width: "15%" }} />{/* Provider */}
-            <col style={{ width: "20%" }} />{/* Host */}
-            <col style={{ width: "13%" }} />{/* Tool */}
-            <col style={{ width: "10%" }} />{/* OS */}
-            <col style={{ width: "10%" }} />{/* Detection */}
-          </colgroup>
+        <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/50">
               <Th field="timestamp" label="Time" sort={sort} toggleSort={toggleSort}>
@@ -385,17 +375,17 @@ function EventRowComponent({
         )}
         onClick={onToggle}
       >
-        <td className="px-4 py-3 text-muted-foreground truncate">{timeAgo(event.timestamp)}</td>
-        <td className="px-4 py-3 truncate">{event.os_username}</td>
-        <td className="px-4 py-3 text-muted-foreground truncate">{event.machine_hostname}</td>
-        <td className="px-4 py-3 truncate">
+        <td className="px-4 py-3 text-muted-foreground">{timeAgo(event.timestamp)}</td>
+        <td className="px-4 py-3">{event.os_username}</td>
+        <td className="px-4 py-3 text-muted-foreground">{event.machine_hostname}</td>
+        <td className="px-4 py-3">
           <span className="inline-flex items-center gap-1.5">
             <ProviderIcon provider={event.provider} />
             {formatProvider(event.provider)}
           </span>
         </td>
-        <td className="px-4 py-3 text-muted-foreground truncate">{event.provider_host}</td>
-        <td className="px-4 py-3 truncate">{formatProcess(event.process_name)}</td>
+        <td className="px-4 py-3 text-muted-foreground">{event.provider_host}</td>
+        <td className="px-4 py-3">{formatProcess(event.process_name)}</td>
         <td className="px-4 py-3">
           <Badge variant="secondary">{formatOS(event.os_type)}</Badge>
         </td>
@@ -406,13 +396,10 @@ function EventRowComponent({
       {expanded && (
         <tr className="border-b border-border bg-muted/20">
           <td colSpan={8} className="px-4 py-4">
-            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm max-w-full overflow-hidden">
+            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm max-w-2xl">
               <Detail label="Provider host" value={event.provider_host} />
               <Detail label="Source IP" value={event.src_ip || "N/A"} />
-              <div className="col-span-2 min-w-0">
-                <span className="text-muted-foreground">Process path: </span>
-                <span className="break-all">{event.process_path || "N/A"}</span>
-              </div>
+              <Detail label="Process path" value={event.process_path || "N/A"} />
               <Detail label="Model hint" value={event.model_hint || "N/A"} />
               <Detail label="Capture mode" value={event.capture_mode.toUpperCase()} />
               <Detail label="Timestamp" value={new Date(event.timestamp).toLocaleString()} />
@@ -426,9 +413,9 @@ function EventRowComponent({
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0">
+    <div style={{ overflowWrap: "anywhere" }}>
       <span className="text-muted-foreground">{label}: </span>
-      <span className="break-all">{value}</span>
+      {value}
     </div>
   );
 }

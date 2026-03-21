@@ -250,14 +250,14 @@ export default function Events() {
       <div className="rounded-lg border border-border bg-card overflow-x-auto">
         <table className="w-full text-sm table-fixed">
           <colgroup>
-            <col className="w-[11%]" />{/* Time */}
-            <col className="w-[10%]" />{/* User */}
-            <col className="w-[11%]" />{/* Machine */}
-            <col className="w-[15%]" />{/* Provider */}
-            <col className="w-[20%]" />{/* Host */}
-            <col className="w-[13%]" />{/* Tool */}
-            <col className="w-[10%]" />{/* OS */}
-            <col className="w-[10%]" />{/* Detection */}
+            <col style={{ width: "11%" }} />{/* Time */}
+            <col style={{ width: "10%" }} />{/* User */}
+            <col style={{ width: "11%" }} />{/* Machine */}
+            <col style={{ width: "15%" }} />{/* Provider */}
+            <col style={{ width: "20%" }} />{/* Host */}
+            <col style={{ width: "13%" }} />{/* Tool */}
+            <col style={{ width: "10%" }} />{/* OS */}
+            <col style={{ width: "10%" }} />{/* Detection */}
           </colgroup>
           <thead>
             <tr className="border-b border-border bg-muted/50">
@@ -406,10 +406,13 @@ function EventRowComponent({
       {expanded && (
         <tr className="border-b border-border bg-muted/20">
           <td colSpan={8} className="px-4 py-4">
-            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm max-w-2xl">
+            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm max-w-full overflow-hidden">
               <Detail label="Provider host" value={event.provider_host} />
               <Detail label="Source IP" value={event.src_ip || "N/A"} />
-              <Detail label="Process path" value={event.process_path || "N/A"} />
+              <div className="col-span-2 min-w-0">
+                <span className="text-muted-foreground">Process path: </span>
+                <span className="break-all">{event.process_path || "N/A"}</span>
+              </div>
               <Detail label="Model hint" value={event.model_hint || "N/A"} />
               <Detail label="Capture mode" value={event.capture_mode.toUpperCase()} />
               <Detail label="Timestamp" value={new Date(event.timestamp).toLocaleString()} />

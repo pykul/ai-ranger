@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/pykul/ai-ranger/workers/cmd/api/docs" // registers generated Swagger spec
+
 	"github.com/pykul/ai-ranger/workers/internal/api"
 	"github.com/pykul/ai-ranger/workers/internal/config"
 	"github.com/pykul/ai-ranger/workers/internal/database"

@@ -10,6 +10,9 @@ COPY workers/go.mod workers/go.sum ./
 RUN go mod download
 COPY workers/ .
 
+# Generate Swagger docs from annotations, then build.
+RUN go install github.com/swaggo/swag/cmd/swag@v1.8.1 && \
+    swag init -g cmd/api/main.go -o cmd/api/docs --parseDependency
 RUN go build -o /bin/api-server ./cmd/api
 
 # -- Runtime image: single binary, minimal surface

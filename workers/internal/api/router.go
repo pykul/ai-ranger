@@ -31,8 +31,12 @@ func NewRouter(pg *gorm.DB, ch clickhouse.Conn, cfg config.Config) chi.Router {
 	// Health check -- used by Docker and k8s probes
 	r.Get(constants.RouteHealth, healthCheck())
 
-	// Swagger UI at /docs/*
-	r.Get("/docs/*", httpSwagger.WrapHandler)
+	// Swagger UI at /docs/ — Mount strips the /docs prefix so httpSwagger
+	// sees clean paths (/index.html, /doc.json, etc.).
+	// URL option routes the spec fetch through nginx's /api prefix.
+	r.Mount("/docs", httpSwagger.Handler(
+		httpSwagger.URL("/api/docs/doc.json"),
+	))
 
 	// Auth endpoints -- must be accessible without a token
 	r.Post(constants.RouteAuthLogin, authLogin(cfg))

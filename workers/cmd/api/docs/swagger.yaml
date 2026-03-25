@@ -1,0 +1,305 @@
+basePath: /
+definitions:
+  github.com_pykul_ai-ranger_workers_internal_api.SettingsResponse:
+    properties:
+      org_id:
+        type: string
+      webhook_url:
+        type: string
+    type: object
+  github.com_pykul_ai-ranger_workers_internal_api.SettingsUpdateRequest:
+    properties:
+      org_id:
+        type: string
+      webhook_url:
+        type: string
+    type: object
+  github.com_pykul_ai-ranger_workers_internal_api.TokenCreateRequest:
+    properties:
+      label:
+        type: string
+      max_uses:
+        type: integer
+      org_id:
+        type: string
+    type: object
+  github.com_pykul_ai-ranger_workers_internal_api.TokenCreateResponse:
+    properties:
+      id:
+        type: string
+      max_uses:
+        type: integer
+      org_id:
+        type: string
+      token:
+        type: string
+    type: object
+  github.com_pykul_ai-ranger_workers_internal_api.healthResponse:
+    properties:
+      service:
+        type: string
+      status:
+        type: string
+    type: object
+  internal_api.SettingsResponse:
+    properties:
+      org_id:
+        type: string
+      webhook_url:
+        type: string
+    type: object
+  internal_api.SettingsUpdateRequest:
+    properties:
+      org_id:
+        type: string
+      webhook_url:
+        type: string
+    type: object
+  internal_api.TokenCreateRequest:
+    properties:
+      label:
+        type: string
+      max_uses:
+        type: integer
+      org_id:
+        type: string
+    type: object
+  internal_api.TokenCreateResponse:
+    properties:
+      id:
+        type: string
+      max_uses:
+        type: integer
+      org_id:
+        type: string
+      token:
+        type: string
+    type: object
+  internal_api.healthResponse:
+    properties:
+      service:
+        type: string
+      status:
+        type: string
+    type: object
+  store.FleetAgent:
+    properties:
+      agentVersion:
+        type: string
+      enrolledAt:
+        type: string
+      hostname:
+        type: string
+      id:
+        description: generated on device
+        type: string
+      lastSeenAt:
+        type: string
+      orgID:
+        type: string
+      os:
+        description: '"linux" | "macos" | "windows"'
+        type: string
+      osUsername:
+        type: string
+      status:
+        description: '"active" | "revoked"'
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Dashboard and fleet management endpoints for AI Ranger.
+  title: AI Ranger Query API
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      description: Returns HTTP 200 if the API server is running. No auth required.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github.com_pykul_ai-ranger_workers_internal_api.healthResponse'
+      summary: Health check
+      tags:
+      - Health
+  /v1/admin/agents/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Sets an agent's status to 'revoked', preventing further event submission.
+      parameters:
+      - description: Agent UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Agent revoked
+        "400":
+          description: Invalid UUID
+          schema:
+            type: string
+        "404":
+          description: Agent not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: Revoke agent
+      tags:
+      - Admin
+  /v1/admin/settings:
+    get:
+      description: Returns the current org settings including the masked webhook URL.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github.com_pykul_ai-ranger_workers_internal_api.SettingsResponse'
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: Get org settings
+      tags:
+      - Admin
+    put:
+      consumes:
+      - application/json
+      description: Updates the webhook URL for the organization. The URL must be HTTPS.
+      parameters:
+      - description: Settings update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github.com_pykul_ai-ranger_workers_internal_api.SettingsUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github.com_pykul_ai-ranger_workers_internal_api.SettingsResponse'
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: Update org settings
+      tags:
+      - Admin
+  /v1/admin/settings/test:
+    post:
+      description: Fires a test webhook to the configured URL for the organization.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Webhook delivered
+          schema:
+            type: string
+        "404":
+          description: No webhook configured
+          schema:
+            type: string
+        "502":
+          description: Webhook delivery failed
+          schema:
+            type: string
+      summary: Test webhook
+      tags:
+      - Admin
+  /v1/admin/tokens:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new enrollment token for agent enrollment.
+      parameters:
+      - description: Token creation request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github.com_pykul_ai-ranger_workers_internal_api.TokenCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github.com_pykul_ai-ranger_workers_internal_api.TokenCreateResponse'
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: Create enrollment token
+      tags:
+      - Admin
+  /v1/admin/tokens/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Deletes an enrollment token by ID, preventing further enrollments.
+      parameters:
+      - description: Token UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Token revoked
+        "400":
+          description: Invalid UUID
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: Revoke enrollment token
+      tags:
+      - Admin
+  /v1/dashboard/fleet:
+    get:
+      consumes:
+      - application/json
+      description: Returns all enrolled agents with hostname, OS, version, last seen,
+        and status.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/store.FleetAgent'
+            type: array
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: Get fleet listing
+      tags:
+      - Fleet
+swagger: "2.0"
